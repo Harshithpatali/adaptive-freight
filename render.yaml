@@ -19,6 +19,10 @@ services:
         value: "true"
       - key: DEMO_ORDER_STREAM
         value: "true"
+      - key: PERSISTENCE_ENABLED
+        value: "false"
+      - key: CHECKPOINT_INTERVAL_S
+        value: "0"
       - key: LIVE_ORDER_STREAM
         value: "true"
       - key: LIVE_ORDER_INTERVAL_S
