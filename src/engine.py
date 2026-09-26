@@ -430,6 +430,10 @@ class Engine:
                 sh.actual_cost_usd=round(trip_cost*share,2)
                 sh.adaptive_distance_km=round(route_km,2)
                 sh.cost_saving_usd=round(sh.baseline_cost_usd-sh.actual_cost_usd,2)
+                sh.is_backhaul=city_distance(sh.delivery_city,v.base_city)<city_distance(warehouse,v.base_city)
+                if sh.is_backhaul:
+                    self.metrics["backhaul_shipments"]+=1
+                    self.metrics["backhaul_km_saved"]+=max(0.0,city_distance(warehouse,v.base_city)-city_distance(sh.delivery_city,v.base_city))
                 sh.adaptive_time_min=round(route_km/max(1.0,v.speed_kmh)*60+sum(s.service_minutes for s in stops),2)
                 sh.time_saving_min=round(sh.baseline_time_min-sh.adaptive_time_min,2)
                 sh.status="assigned";sh.assigned_vehicle=v.vehicle_id;sh.assigned_at=self.sim_time;sh.queued_since=None
