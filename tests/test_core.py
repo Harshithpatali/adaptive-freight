@@ -11,7 +11,7 @@ class FakeRouter:
 def test_optimizer_prefers_active():
     v=Vehicle('V1','Box Truck',4500,1500,.8,60,'DAL',current_city='DAL')
     v.assigned_shipments=['OLD'];v.reserved_load_kg=1000;v.status='enroute';v.stops=[Stop('HOU','delivery',['OLD'])]
-    s=Shipment('S1','DAL','HOU',1000,4,600,datetime.now()+timedelta(hours=2),datetime.now()+timedelta(hours=6),'Standard')
+    s=Shipment('S1','DAL','HOU',1000,4,600,datetime.now()+timedelta(hours=2),datetime.now()+timedelta(hours=8),'Standard')
     d,stats=Optimizer(FakeRouter()).evaluate([v],s)
     assert d and d['vehicle'].vehicle_id=='V1'
     assert 'reason' in d
