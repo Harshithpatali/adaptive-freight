@@ -32,7 +32,7 @@ class Settings:
     rate_limit_per_minute: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "300"))
     log_json: bool = os.getenv("LOG_JSON", "false").lower() == "true"
     live_order_stream: bool = os.getenv("LIVE_ORDER_STREAM", "true").lower() == "true"
-    live_order_interval_s: float = float(os.getenv("LIVE_ORDER_INTERVAL_S", "25"))
+    live_order_interval_s: float = float(os.getenv("LIVE_ORDER_INTERVAL_S", "15"))
 
     @property
     def api_keys(self) -> dict[str, str]:
