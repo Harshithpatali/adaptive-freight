@@ -206,6 +206,47 @@ For the free Render filesystem, persistence should remain disabled:
 
 The project remains intentionally suitable for demonstration and portfolio use rather than claiming production TMS readiness.
 
+## Advanced optimization capabilities
+
+### Phase 1 — mathematical optimization
+- Counterfactual traditional baseline for every shipment: dedicated truck distance, cost, service time, and delivery time.
+- Adaptive-vs-traditional cost/time comparison at shipment and network levels.
+- OSRM Table API is used in the realtime candidate filter for road travel time.
+- SLA-aware pickup and delivery feasibility with explicit time buffers.
+- Pickup, warehouse loading, handoff, and delivery service times.
+- Empty-mile tracking and backhaul detection.
+
+### Phase 2 — operational control tower
+- Clickable warehouse markers with live orders, weight, volume, trucks, departure deadline, and forecast.
+- Candidate incoming trucks with ETA and remaining capacity.
+- Driver accept/reject workflow with automatic timeout fallback.
+- Decision explanations including SLA buffer, detour, savings, and rejected-candidate reasons.
+- Traditional-vs-adaptive shipment comparison table.
+
+### Phase 3 — advanced planning
+- Breakdown cargo transfer at the breakdown location to another feasible truck.
+- Automatic demand forecasting by warehouse for the next hour.
+- OR-Tools CP-SAT fleet-to-warehouse repositioning recommendations.
+- Manual fleet reoptimization endpoint and dashboard control.
+- Replayable event timeline with sequence numbers and simulation timestamps.
+
+The fleet repositioning optimizer runs periodically in the background and can also be triggered through:
+
+    POST /fleet/reoptimize
+
+Driver decisions are exposed through:
+
+    GET  /driver-offers
+    POST /driver-offers/{offer_id}
+
+Shipment comparison is exposed through:
+
+    GET /shipments/{shipment_id}
+
+Event replay is exposed through:
+
+    GET /replay
+
 ## Important limitation
 
 This is a portfolio/engineering prototype, not a production TMS. Real logistics deployment still needs GPS/ELD telemetry, WMS/TMS/ERP/EDI integration, carrier contracts and rates, driver workflows, persistent event storage, distributed coordination, SLA policies, security hardening, and a routing provider with an appropriate SLA.
