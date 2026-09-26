@@ -302,7 +302,9 @@ class Engine:
 
     async def _assign_active(self,sh,decision,stats,decision_type="consolidate"):
         v=decision["vehicle"]
+        was_queued=sh.status=="queued"
         self._remove_from_warehouse_queue(sh.shipment_id)
+        if was_queued:self.metrics["queued"]=max(0,self.metrics["queued"]-1)
         sh.status="assigned";sh.assigned_vehicle=v.vehicle_id;sh.assigned_at=self.sim_time
         sh.adaptive_distance_km=round(max(0.0,decision["extra_km"]),2)
         sh.actual_cost_usd=round(max(0.0,decision["extra_km"])*v.cost_per_km,2)
@@ -316,8 +318,9 @@ class Engine:
         v.reserved_load_kg+=sh.weight_kg;v.reserved_volume_m3+=sh.volume_m3
         v.status="enroute";v.mission="freight";v.stops=decision["stops"]
         self.metrics["allocated_actual_cost"]+=sh.actual_cost_usd
-        self.metrics["processed"]+=1
-        self.metrics["revenue"]+=sh.revenue_usd
+        if not was_queued:
+            self.metrics["processed"]+=1
+            self.metrics["revenue"]+=sh.revenue_usd
         if decision_type=="consolidate":self.metrics["consolidated"]+=1
         if sh.is_backhaul:
             self.metrics["backhaul_shipments"]+=1
