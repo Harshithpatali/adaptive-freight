@@ -3,27 +3,115 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-html,body,#map{height:100%;margin:0;background:#0b1220}#hud{position:absolute;z-index:1000;top:12px;left:12px;background:rgba(9,14,25,.92);color:#fff;padding:12px 14px;border-radius:10px;font:13px system-ui;min-width:250px;box-shadow:0 6px 20px rgba(0,0,0,.3)}#hud b{font-size:16px}.legend{margin-top:8px}.row{display:flex;align-items:center;gap:7px;margin:4px 0}.dot{width:10px;height:10px;border-radius:50%;display:inline-block}.real{color:#62e6a2}.fallback{color:#ffb86b}.event{font-size:11px;opacity:.85;margin-top:4px}
+html,body,#map{height:100%;margin:0;background:#0b1220}
+#hud{position:absolute;z-index:1000;top:12px;left:12px;background:rgba(9,14,25,.92);color:#fff;padding:12px 14px;border-radius:10px;font:13px system-ui;min-width:250px;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+#hud b{font-size:16px}.legend{margin-top:8px}.row{display:flex;align-items:center;gap:7px;margin:4px 0}.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.real{color:#62e6a2}.fallback{color:#ffb86b}.event{font-size:11px;opacity:.85;margin-top:4px}
+.warehouse-marker{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#1d4ed8;border:3px solid #dbeafe;color:#fff;font-size:15px;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.warehouse-popup{min-width:220px;font:13px system-ui,sans-serif}.warehouse-popup h3{margin:0 0 8px;font-size:16px}
+.warehouse-popup .line{display:flex;justify-content:space-between;gap:14px;padding:3px 0;border-bottom:1px solid #eee}
+.warehouse-popup .muted{color:#666}.warehouse-popup .due{color:#b91c1c;font-weight:700}.warehouse-popup .ok{color:#166534;font-weight:700}
 </style></head><body><div id="map"></div><div id="hud"><b>🚚 Adaptive Freight</b><div id="kpi">Connecting…</div><div class="legend" id="legend"></div><div class="event" id="event"></div></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const cityCoords={}; window.__cityCoords=cityCoords; const map=L.map('map',{preferCanvas:true}).setView([38,-96],4);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap contributors'}).addTo(map);
-const routes=new Map(), markers=new Map(), stops=new Map();
+const cityCoords={}; window.__cityCoords=cityCoords;
+const map=L.map('map',{preferCanvas:true}).setView([38,-96],4);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap contributors'}).addTo(map);
+
+const routes=new Map(),markers=new Map(),stops=new Map(),warehouseMarkers=new Map();
 const palette=['#00d4ff','#ff4d6d','#7cff6b','#ffb84d','#b58cff','#00e5a8','#ffd166','#9bf6ff','#f72585','#90be6d','#f9844a','#43aa8b'];
+
 function colorFor(id){let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))>>>0;return palette[h%palette.length]}
 function popup(v){return `<b>${v.vehicle_id}</b><br>${v.type}<br>Status: ${v.status}<br>Load: ${v.load_kg}/${v.capacity_kg} kg<br>Utilization: ${v.utilization_pct}%<br>Route: <span class="${v.route_quality==='real'?'real':'fallback'}">${v.route_quality}</span>`}
-function updateState(s){
- document.getElementById('kpi').innerHTML=`Orders <b>${s.orders_processed}</b> / ${s.orders_total}<br>Consolidation <b>${s.metrics.consolidation_rate}%</b> · Active <b>${s.metrics.active??s.vehicles.filter(v=>v.status==='enroute').length}</b><br>Optimizer p95 <b>${s.metrics.optimizer_p95_ms} ms</b><br>Real routes <b>${s.metrics.real_routes}</b> · Fallback <b>${s.metrics.fallback_routes}</b>`;
- const lg=document.getElementById('legend'); lg.innerHTML='';
- for(const v of s.vehicles){
-  if(v.status!=='enroute'||!v.geometry?.length) continue;
-  const c=colorFor(v.vehicle_id); const opts={color:c,weight:5,opacity:.9,dashArray:v.route_quality==='real'?null:'8 10'}; if(routes.has(v.vehicle_id)) routes.get(v.vehicle_id).setLatLngs(v.geometry).setStyle(opts); else {const p=L.polyline(v.geometry,opts).addTo(map); routes.set(v.vehicle_id,p)}
-  if(markers.has(v.vehicle_id)) markers.get(v.vehicle_id).setLatLng([v.lat,v.lon]).bindPopup(popup(v)); else {const m=L.circleMarker([v.lat,v.lon],{radius:8,color:c,fillColor:c,fillOpacity:1,weight:2}).addTo(map);m.bindPopup(popup(v));markers.set(v.vehicle_id,m)}
-  for(const s of v.route_stops||[]){const sid=`${v.vehicle_id}:${s.kind}:${s.city}:${(s.shipment_ids||[]).join(',')}`;const cc=s.kind==='pickup'?'#ffd166':'#ffffff';const ll=window.__cityCoords?.[s.city]; if(ll){if(stops.has(sid)) stops.get(sid).setLatLng(ll).bindPopup(`${s.kind.toUpperCase()}<br>${s.city}<br>${(s.shipment_ids||[]).join(', ')}`); else {const sm=L.circleMarker(ll,{radius:6,color:c,fillColor:cc,fillOpacity:.95,weight:2}).addTo(map);sm.bindPopup(`${s.kind.toUpperCase()}<br>${s.city}<br>${(s.shipment_ids||[]).join(', ')}`);stops.set(sid,sm)}}}
-  const row=document.createElement('div');row.className='row';row.innerHTML=`<span class="dot" style="background:${c}"></span>${v.vehicle_id} ${v.load_kg.toFixed(0)}/${v.capacity_kg}kg <span class="${v.route_quality==='real'?'real':'fallback'}">●</span>`;lg.appendChild(row)
- }
- for(const [id,p] of routes){if(!s.vehicles.find(v=>v.vehicle_id===id&&v.status==='enroute')){map.removeLayer(p);routes.delete(id);if(markers.has(id)){map.removeLayer(markers.get(id));markers.delete(id)}}}
+
+function fmtTime(iso){
+  if(!iso)return '—';
+  const d=new Date(iso);
+  return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 }
-function connect(){const proto=location.protocol==='https:'?'wss':'ws';let k=localStorage.getItem('af_api_key');if(k===null){k=window.prompt('API key (leave blank if none configured):','')||'';localStorage.setItem('af_api_key',k);}const ws=new WebSocket(`${proto}://${location.host}/ws${k?'?key='+encodeURIComponent(k):''}`);ws.onmessage=e=>{const x=JSON.parse(e.data);if(x.type==='state')updateState(x.data);if(x.type==='order'||x.type==='disruption')document.getElementById('event').textContent=x.message||x.kind;if(x.type==='route')document.getElementById('event').textContent=`${x.vehicle_id}: ${x.quality} road route (${x.route_ms.toFixed(0)} ms)`};ws.onclose=()=>setTimeout(connect,1000);ws.onerror=()=>ws.close()}
-fetch('/city-coords').then(r=>r.json()).then(x=>Object.assign(cityCoords,x)).catch(()=>{}); connect();
+
+function warehousePopup(w){
+  const due=w.departure_due;
+  const remaining=w.departure_in_min==null?'No queued shipment':(due?'DEPARTURE DUE':w.departure_in_min.toFixed(0)+' min remaining');
+  const remainingClass=due?'due':'ok';
+  const vehicles=(w.available_vehicles||[]).length ? w.available_vehicles.join(', ') : 'None';
+  return `
+    <div class="warehouse-popup">
+      <h3>🏭 Warehouse ${w.warehouse}</h3>
+      <div class="line"><span>Orders waiting</span><b>${w.orders}</b></div>
+      <div class="line"><span>Total weight</span><b>${w.weight_kg.toLocaleString()} kg</b></div>
+      <div class="line"><span>Total volume</span><b>${w.volume_m3.toFixed(2)} m³</b></div>
+      <div class="line"><span>Vehicles available</span><b>${w.available_vehicle_count}</b></div>
+      <div class="line"><span>Vehicle IDs</span><b>${vehicles}</b></div>
+      <div class="line"><span>Oldest wait</span><b>${w.oldest_wait_min.toFixed(0)} min</b></div>
+      <div class="line"><span>2-hour departure</span><b>${fmtTime(w.departure_deadline)}</b></div>
+      <div class="line"><span>Departure status</span><b class="${remainingClass}">${remaining}</b></div>
+      <div style="margin-top:8px" class="muted">Rule: dispatch when full (~90%) or when the oldest queued order reaches 2 simulated hours.</div>
+    </div>`;
+}
+
+function updateWarehouses(warehouses){
+  for(const w of warehouses||[]){
+    const ll=window.__cityCoords?.[w.warehouse];
+    if(!ll)continue;
+    const html=warehousePopup(w);
+    if(warehouseMarkers.has(w.warehouse)){
+      warehouseMarkers.get(w.warehouse).setLatLng(ll).bindPopup(html);
+    }else{
+      const icon=L.divIcon({className:'',html:'<div class="warehouse-marker">W</div>',iconSize:[30,30],iconAnchor:[15,15],popupAnchor:[0,-15]});
+      const marker=L.marker(ll,{icon,zIndexOffset:1000}).addTo(map);
+      marker.bindPopup(html,{maxWidth:320});
+      warehouseMarkers.set(w.warehouse,marker);
+    }
+  }
+}
+
+function updateState(s){
+  document.getElementById('kpi').innerHTML=`Orders <b>${s.orders_processed}</b> / ${s.orders_total}<br>Consolidation <b>${s.metrics.consolidation_rate}%</b> · Active <b>${s.vehicles.filter(v=>v.status==='enroute').length}</b><br>Optimizer p95 <b>${s.metrics.optimizer_p95_ms} ms</b><br>Real routes <b>${s.metrics.real_routes}</b> · Fallback <b>${s.metrics.fallback_routes}</b>`;
+  updateWarehouses(s.warehouses||[]);
+  const lg=document.getElementById('legend');lg.innerHTML='';
+  for(const v of s.vehicles){
+    if(v.status!=='enroute'||!v.geometry?.length)continue;
+    const c=colorFor(v.vehicle_id);
+    const opts={color:c,weight:5,opacity:.9,dashArray:v.route_quality==='real'?null:'8 10'};
+    if(routes.has(v.vehicle_id))routes.get(v.vehicle_id).setLatLngs(v.geometry).setStyle(opts);
+    else{const p=L.polyline(v.geometry,opts).addTo(map);routes.set(v.vehicle_id,p)}
+    if(markers.has(v.vehicle_id))markers.get(v.vehicle_id).setLatLng([v.lat,v.lon]).bindPopup(popup(v));
+    else{const m=L.circleMarker([v.lat,v.lon],{radius:8,color:c,fillColor:c,fillOpacity:1,weight:2}).addTo(map);m.bindPopup(popup(v));markers.set(v.vehicle_id,m)}
+    for(const s of v.route_stops||[]){
+      const sid=`${v.vehicle_id}:${s.kind}:${s.city}:${(s.shipment_ids||[]).join(',')}`;
+      const cc=s.kind==='pickup'?'#ffd166':'#ffffff';
+      const ll=window.__cityCoords?.[s.city];
+      if(ll){
+        const html=`${s.kind.toUpperCase()}<br>${s.city}<br>${(s.shipment_ids||[]).join(', ')}`;
+        if(stops.has(sid))stops.get(sid).setLatLng(ll).bindPopup(html);
+        else{const sm=L.circleMarker(ll,{radius:6,color:c,fillColor:cc,fillOpacity:.95,weight:2}).addTo(map);sm.bindPopup(html);stops.set(sid,sm)}
+      }
+    }
+    const row=document.createElement('div');row.className='row';row.innerHTML=`<span class="dot" style="background:${c}"></span>${v.vehicle_id} ${v.load_kg.toFixed(0)}/${v.capacity_kg}kg <span class="${v.route_quality==='real'?'real':'fallback'}">●</span>`;lg.appendChild(row);
+  }
+  for(const [id,p] of routes){
+    if(!s.vehicles.find(v=>v.vehicle_id===id&&v.status==='enroute')){
+      map.removeLayer(p);routes.delete(id);
+      if(markers.has(id)){map.removeLayer(markers.get(id));markers.delete(id)}
+    }
+  }
+}
+
+function connect(){
+  const proto=location.protocol==='https:'?'wss':'ws';
+  let k=localStorage.getItem('af_api_key');
+  if(k===null){k=window.prompt('API key (leave blank if none configured):','')||'';localStorage.setItem('af_api_key',k);}
+  const ws=new WebSocket(`${proto}://${location.host}/ws${k?'?key='+encodeURIComponent(k):''}`);
+  ws.onmessage=e=>{
+    const x=JSON.parse(e.data);
+    if(x.type==='state')updateState(x.data);
+    if(x.type==='order'||x.type==='notification'||x.type==='departure'||x.type==='warehouse'||x.type==='disruption')document.getElementById('event').textContent=x.message||x.kind||'';
+    if(x.type==='route')document.getElementById('event').textContent=`${x.vehicle_id}: ${x.quality} road route (${x.route_ms.toFixed(0)} ms)`;
+  };
+  ws.onclose=()=>setTimeout(connect,1000);ws.onerror=()=>ws.close();
+}
+
+fetch('/city-coords').then(r=>r.json()).then(x=>Object.assign(cityCoords,x)).catch(()=>{});
+connect();
 </script></body></html>
