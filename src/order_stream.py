@@ -10,21 +10,39 @@ CITIES=pd.read_csv(settings.base_dir / "data/cities.csv")
 HUBS=CITIES[CITIES.type=="hub"].city_id.tolist(); SPOKES=CITIES[CITIES.type=="spoke"].city_id.tolist(); ALL=CITIES.city_id.tolist()
 CORRIDORS=[("DAL","HOU"),("ATL","CLT"),("CHI","IND"),("LAX","SDG"),("NYC","PHL"),("SEA","PDX"),("MIA","ORL"),("DEN","KC")]
 
+def _package_shape(rng, weight_kg: float):
+    # Shipment volume scales with mass but retains realistic parcel/pallet variation.
+    volume = float(np.clip(weight_kg * rng.uniform(0.0035, 0.0080), 0.02, 48.0))
+    aspect = rng.uniform(1.2, 2.4)
+    h = (volume / aspect) ** (1/3)
+    l = h * aspect
+    w = max(0.15, (volume / (l * max(h,0.01))))
+    return round(l,2), round(w,2), round(h,2), round(volume,2)
+
 def _sample_order(rng,shipment_id,t):
     if rng.random()<0.72:
         a,b=CORRIDORS[int(rng.integers(0,len(CORRIDORS)))]
         if rng.random()<0.25:a,b=b,a
     else:
-        a=rng.choice(HUBS); b=rng.choice([x for x in SPOKES if x!=a] or [x for x in ALL if x!=a])
-    w=int(np.clip(rng.lognormal(np.log(2800),0.55),400,12000)); priority="Express" if rng.random()<0.18 else "Standard"
-    pickup_deadline=t+timedelta(minutes=int(rng.integers(25,75))); delivery_deadline=pickup_deadline+timedelta(minutes=int(rng.integers(90,320)))
-    return {"shipment_id":shipment_id,"arrival_time":t,"pickup_city":a,"delivery_city":b,"weight_kg":w,"volume_m3":round(w*rng.uniform(.0035,.008),2),
-            "revenue_usd":round(w*rng.uniform(.32,.62)+rng.uniform(90,240),2),"pickup_deadline":pickup_deadline,"delivery_deadline":delivery_deadline,"priority":priority,"status":"pending"}
+        a=rng.choice(ALL); b=rng.choice([x for x in ALL if x!=a])
+    w=int(np.clip(rng.lognormal(np.log(2800),0.55),400,12000))
+    length,width,height,volume=_package_shape(rng,w)
+    priority="Express" if rng.random()<0.18 else "Standard"
+    pickup_deadline=t+timedelta(minutes=int(rng.integers(25,75)))
+    delivery_deadline=pickup_deadline+timedelta(minutes=int(rng.integers(90,320)))
+    return {
+        "shipment_id":shipment_id,"arrival_time":t,"pickup_city":a,"delivery_city":b,
+        "weight_kg":w,"volume_m3":volume,"package_length_m":length,"package_width_m":width,"package_height_m":height,
+        "revenue_usd":round(w*rng.uniform(.32,.62)+rng.uniform(90,240),2),
+        "pickup_deadline":pickup_deadline,"delivery_deadline":delivery_deadline,
+        "priority":priority,"status":"pending"
+    }
 
 def generate_orders(n:int=5000,start="2026-09-26 06:00:00",seed=42):
     rng=np.random.default_rng(seed); t=datetime.fromisoformat(start); rows=[]
+    # Historical stream runs at a realistic high-volume rate; live stream controls the demo cadence.
     for i in range(n):
-        gap_seconds=int(rng.integers(2,13))
+        gap_seconds=int(rng.integers(8,18))
         if i:t+=timedelta(seconds=gap_seconds)
         rows.append(_sample_order(rng,f"SH-{i+1:06d}",t))
     return pd.DataFrame(rows)
