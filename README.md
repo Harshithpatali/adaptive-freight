@@ -247,6 +247,13 @@ Event replay is exposed through:
 
     GET /replay
 
+
+## Oracle Cloud deployment
+
+The repository includes an OCI Always Free deployment stack with FastAPI, PostgreSQL, Redis, private ARM64 OSRM, Caddy HTTPS, persistent volumes, and automatic Docker restarts.
+
+See [OCI_DEPLOYMENT.md](OCI_DEPLOYMENT.md).
+
 ## Important limitation
 
 This is a portfolio/engineering prototype, not a production TMS. Real logistics deployment still needs GPS/ELD telemetry, WMS/TMS/ERP/EDI integration, carrier contracts and rates, driver workflows, persistent event storage, distributed coordination, SLA policies, security hardening, and a routing provider with an appropriate SLA.
