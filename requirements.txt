@@ -12,3 +12,5 @@ sqlalchemy>=2.0
 psycopg2-binary>=2.9
 gunicorn>=22.0
 requests>=2.32
+
+ortools>=9.12,<10
