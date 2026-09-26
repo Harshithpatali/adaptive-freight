@@ -233,7 +233,7 @@ class Engine:
         best=min(candidates,key=lambda v:(v.cost_per_km,v.capacity_kg))
         dist=city_distance(warehouse,sh.delivery_city)
         pickup_s,delivery_s=sh.pickup_service_min,sh.delivery_service_min
-        travel=dist/max(1.0,best.speed_kmh)*60
+        travel=dist/max(1.0,best.speed_kmh)*60*max(0.25,self.traffic_factor)
         sh.baseline_distance_km=round(dist,2)
         sh.baseline_cost_usd=round(dist*best.cost_per_km,2)
         sh.baseline_time_min=round(travel+pickup_s+delivery_s,2)
