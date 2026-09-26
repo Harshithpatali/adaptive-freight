@@ -20,17 +20,28 @@ class Shipment:
     status: ShipmentStatus = "pending"
     assigned_vehicle: Optional[str] = None
     assigned_at: Optional[datetime] = None
+    warehouse_city: Optional[str] = None
+    package_length_m: float = 0.0
+    package_width_m: float = 0.0
+    package_height_m: float = 0.0
+    baseline_cost_usd: float = 0.0
+    baseline_time_min: float = 0.0
+    baseline_eta: Optional[datetime] = None
+    actual_cost_usd: float = 0.0
+    cost_saving_usd: float = 0.0
+    time_saving_min: float = 0.0
+    queued_since: Optional[datetime] = None
 
     def to_dict(self):
         d=asdict(self)
-        for k in ("pickup_deadline","delivery_deadline","assigned_at"):
+        for k in ("pickup_deadline","delivery_deadline","assigned_at","baseline_eta","queued_since"):
             if d[k]: d[k]=d[k].isoformat()
         return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Shipment":
         d=dict(d)
-        for k in ("pickup_deadline","delivery_deadline","assigned_at"):
+        for k in ("pickup_deadline","delivery_deadline","assigned_at","baseline_eta","queued_since"):
             if d.get(k): d[k]=datetime.fromisoformat(d[k])
         return cls(**d)
 
@@ -57,6 +68,9 @@ class Vehicle:
     status: str="idle"
     current_load_kg: float=0.0
     reserved_load_kg: float=0.0
+    current_volume_m3: float=0.0
+    reserved_volume_m3: float=0.0
+    volume_capacity_m3: float=0.0
     assigned_shipments: list[str]=field(default_factory=list)
     stops: list[Stop]=field(default_factory=list)
     geometry: list[tuple[float,float]]=field(default_factory=list)
@@ -73,8 +87,16 @@ class Vehicle:
         return max(0.0, self.capacity_kg - self.current_load_kg - self.reserved_load_kg)
 
     @property
+    def remaining_volume_m3(self):
+        if self.volume_capacity_m3 <= 0:
+            return float("inf")
+        return max(0.0, self.volume_capacity_m3 - self.current_volume_m3 - self.reserved_volume_m3)
+
+    @property
     def utilization_pct(self):
-        return min(100.0, 100.0*(self.current_load_kg+self.reserved_load_kg)/self.capacity_kg) if self.capacity_kg else 0.0
+        kg_pct = 100.0*(self.current_load_kg+self.reserved_load_kg)/self.capacity_kg if self.capacity_kg else 0.0
+        vol_pct = 100.0*(self.current_volume_m3+self.reserved_volume_m3)/self.volume_capacity_m3 if self.volume_capacity_m3 else 0.0
+        return min(100.0, max(kg_pct, vol_pct))
 
     def snapshot(self):
         return {
@@ -87,7 +109,10 @@ class Vehicle:
             "load_kg": round(self.current_load_kg,1),
             "reserved_load_kg": round(self.reserved_load_kg,1),
             "capacity_kg": self.capacity_kg,
+            "volume_m3": round(self.current_volume_m3+self.reserved_volume_m3,2),
+            "volume_capacity_m3": self.volume_capacity_m3,
             "remaining_capacity_kg": round(self.remaining_capacity_kg,1),
+            "remaining_volume_m3": round(self.remaining_volume_m3,2) if self.remaining_volume_m3 != float("inf") else None,
             "utilization_pct": round(self.utilization_pct,1),
             "shipments": list(self.assigned_shipments),
             "route_stops": [
