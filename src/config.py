@@ -29,6 +29,7 @@ class Settings:
     cors_origins: tuple[str, ...] = field(default_factory=lambda: _split_csv(os.getenv("CORS_ORIGINS", "")))
     demo_order_stream: bool = os.getenv("DEMO_ORDER_STREAM", "true").lower() == "true"
     checkpoint_interval_s: float = float(os.getenv("CHECKPOINT_INTERVAL_S", "10"))
+    persistence_enabled: bool = os.getenv("PERSISTENCE_ENABLED", "true").lower() == "true"
     rate_limit_per_minute: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "300"))
     log_json: bool = os.getenv("LOG_JSON", "false").lower() == "true"
     live_order_stream: bool = os.getenv("LIVE_ORDER_STREAM", "true").lower() == "true"
