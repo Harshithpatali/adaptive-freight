@@ -10,6 +10,8 @@ from .optimizer import Optimizer
 from .event_bus import EventBus
 from .router import RoadRouter
 from . import persistence
+from .forecast import DemandForecaster
+from .global_optimizer import GlobalFleetOptimizer
 
 class Engine:
     WAREHOUSE_DEPARTURE_MIN=120.0
@@ -32,12 +34,32 @@ class Engine:
         self.shipments={};self.vehicles={};self.history=[];self.started_at=time.time()
         self.route_tasks=set();self.route_tasks_by_vehicle={};self.live_queue=asyncio.Queue();self.traffic_factor=settings.traffic_factor
         self.warehouse_queues={};self.warehouse_first_arrival={}
+        self.forecaster=DemandForecaster()
+        self.global_optimizer=GlobalFleetOptimizer()
+        self.last_global_opt_sim=self.sim_time
+        self.driver_offers={}
+        self.offer_counter=0
+        self.event_seq=0
         self.metrics={"processed":0,"consolidated":0,"warehouse_batched":0,"dispatched":0,"queued":0,"delivered":0,
                       "breakdowns":0,"km":0.0,"cost":0.0,"revenue":0.0,"baseline_cost":0.0,"allocated_actual_cost":0.0,
-                      "time_saved_min":0.0,"warehouse_departures":0}
+                      "time_saved_min":0.0,"warehouse_departures":0,"baseline_km":0.0,"baseline_time_min":0.0,"empty_km":0.0,"backhaul_shipments":0,"backhaul_km_saved":0.0,"driver_accepts":0,"driver_rejects":0,"breakdown_transfers":0,"reposition_km":0.0}
         self._build_fleet();self._last_checkpoint_at=0.0;self._checkpoint_task=None
         self._live_stream_enabled=settings.live_order_stream;self._live_stream_interval=settings.live_order_interval_s
         self._live_stream_task=None;self._live_sampler=None
+
+    def _record(self,event):
+        event=dict(event)
+        self.event_seq+=1
+        event.setdefault("seq",self.event_seq)
+        event.setdefault("timestamp",self.sim_time.isoformat())
+        self.history.append(event)
+        self.history=self.history[-300:]
+        return event
+
+    async def _emit(self,event):
+        event=self._record(event)
+        await self.bus.publish(event)
+        return event
 
     def _build_fleet(self):
         speeds={"Cargo Van":58,"Box Truck":62,"Medium Truck":65,"Semi":68}
