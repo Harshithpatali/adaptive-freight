@@ -52,7 +52,7 @@ class Shipment:
     @classmethod
     def from_dict(cls,d:dict)->"Shipment":
         d=dict(d)
-        for k in ("pickup_deadline","delivery_deadline","assigned_at","baseline_eta","queued_since"):
+        for k in ("pickup_deadline","delivery_deadline","assigned_at","baseline_eta","queued_since","order_arrival_at"):
             if d.get(k): d[k]=datetime.fromisoformat(d[k])
         return cls(**d)
 
