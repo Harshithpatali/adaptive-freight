@@ -35,6 +35,7 @@ function warehousePopup(w){
   const remaining=w.departure_in_min==null?'No queued shipment':(due?'DEPARTURE DUE':w.departure_in_min.toFixed(0)+' min remaining');
   const remainingClass=due?'due':'ok';
   const vehicles=(w.available_vehicles||[]).length ? w.available_vehicles.join(', ') : 'None';
+  const incoming=(w.incoming_trucks||[]).length ? (w.incoming_trucks.slice(0,4).map(t=>t.vehicle_id+' · '+t.current_city+' · '+t.eta_min.toFixed(0)+' min · '+t.remaining_kg.toFixed(0)+' kg').join('<br>')) : 'None';
   return `
     <div class="warehouse-popup">
       <h3>🏭 Warehouse ${w.warehouse}</h3>
@@ -46,6 +47,8 @@ function warehousePopup(w){
       <div class="line"><span>Oldest wait</span><b>${w.oldest_wait_min.toFixed(0)} min</b></div>
       <div class="line"><span>2-hour departure</span><b>${fmtTime(w.departure_deadline)}</b></div>
       <div class="line"><span>Departure status</span><b class="${remainingClass}">${remaining}</b></div>
+      <div style="margin-top:8px"><b>Incoming candidate trucks</b><br><span class="muted">${incoming}</span></div>
+      <div class="line"><span>Forecast / hour</span><b>${w.forecast_orders_next_hour.toFixed(1)} orders</b></div>
       <div style="margin-top:8px" class="muted">Rule: dispatch when full (~90%) or when the oldest queued order reaches 2 simulated hours.</div>
     </div>`;
 }
@@ -106,7 +109,7 @@ function connect(){
   ws.onmessage=e=>{
     const x=JSON.parse(e.data);
     if(x.type==='state')updateState(x.data);
-    if(x.type==='order'||x.type==='notification'||x.type==='departure'||x.type==='warehouse'||x.type==='disruption')document.getElementById('event').textContent=x.message||x.kind||'';
+    if(x.type==='order'||x.type==='notification'||x.type==='departure'||x.type==='warehouse'||x.type==='disruption'||x.type==='driver'||x.type==='transfer'||x.type==='reposition')document.getElementById('event').textContent=x.message||x.kind||'';
     if(x.type==='route')document.getElementById('event').textContent=`${x.vehicle_id}: ${x.quality} road route (${x.route_ms.toFixed(0)} ms)`;
   };
   ws.onclose=()=>setTimeout(connect,1000);ws.onerror=()=>ws.close();
