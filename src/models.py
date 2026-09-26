@@ -22,6 +22,7 @@ class Shipment:
     assigned_at:Optional[datetime]=None
     warehouse_city:Optional[str]=None
     original_warehouse_city:Optional[str]=None
+    handoff_city:Optional[str]=None
     package_length_m:float=0.0
     package_width_m:float=0.0
     package_height_m:float=0.0
