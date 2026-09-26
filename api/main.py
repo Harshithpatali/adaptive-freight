@@ -14,7 +14,7 @@ from src.auth import require_role,authorize_ws
 
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log=logging.getLogger("adaptive_freight")
-APP=FastAPI(title="Adaptive Freight Real-Time Optimization API",version="3.2")
+APP=FastAPI(title="Adaptive Freight Real-Time Optimization API",version="4.0")
 
 if settings.cors_origins:
     APP.add_middleware(CORSMiddleware,allow_origins=list(settings.cors_origins),allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
@@ -53,8 +53,11 @@ class LiveOrder(BaseModel):
     delivery_deadline:str|None=None
     priority:str="Standard"
 
+class DriverDecision(BaseModel):
+    accept:bool
+
 REQS=Counter("adaptive_requests_total","HTTP requests",["path"])
-ORDERS=Counter("adaptive_orders_total","Orders processed")
+ORDERS=Counter("adaptive_orders_total","Orders received")
 OPT=Histogram("adaptive_optimizer_seconds","Optimizer latency")
 ACTIVE=Gauge("adaptive_active_vehicles","Active vehicles")
 
@@ -72,7 +75,7 @@ async def health():
 
 @APP.get("/version")
 async def version():
-    return {"service":"adaptive-freight-api","version":"2026-09-26-warehouse-1","state_endpoint":"/state","stream_endpoint":"/ws"}
+    return {"service":"adaptive-freight-api","version":"2026-09-26-realtime-4","state_endpoint":"/state","stream_endpoint":"/ws"}
 
 @APP.get("/ready")
 async def ready():
@@ -84,7 +87,47 @@ async def state(_role=Depends(require_role("readonly"))):
 
 @APP.get("/events")
 async def events(_role=Depends(require_role("readonly"))):
-    return ENGINE.history[-100:]
+    return ENGINE.history[-200:]
+
+@APP.get("/replay")
+async def replay(_role=Depends(require_role("readonly"))):
+    return {"events":ENGINE.history,"count":len(ENGINE.history)}
+
+@APP.get("/shipments/{shipment_id}")
+async def shipment(shipment_id:str,_role=Depends(require_role("readonly"))):
+    data=ENGINE.shipment_comparison(shipment_id)
+    if not data:raise HTTPException(404,"shipment not found")
+    return data
+
+@APP.get("/driver-offers")
+async def driver_offers(_role=Depends(require_role("dispatcher"))):
+    return list(ENGINE.driver_offers.values())
+
+@APP.post("/driver-offers/{offer_id}")
+async def driver_offer(offer_id:str,decision:DriverDecision,_role=Depends(require_role("dispatcher"))):
+    ok=await ENGINE.respond_driver_offer(offer_id,decision.accept)
+    if not ok:raise HTTPException(409,"offer no longer available")
+    return {"ok":True,"offer":ENGINE.driver_offers.get(offer_id)}
+
+@APP.post("/fleet/reposition/{vehicle_id}/{warehouse}")
+async def reposition(vehicle_id:str,warehouse:str,_role=Depends(require_role("dispatcher"))):
+    v=ENGINE.vehicles.get(vehicle_id)
+    if not v:raise HTTPException(404,"vehicle not found")
+    if warehouse not in set(ENGINE.cities[ENGINE.cities["type"]=="hub"]["city_id"].tolist()):
+        raise HTTPException(400,"unknown warehouse")
+    if v.status!="idle":raise HTTPException(409,"vehicle is not idle")
+    v.status="enroute";v.mission="reposition";v.reposition_target=warehouse
+    from src.models import Stop
+    v.stops=[Stop(warehouse,"reposition",[],service_minutes=0.0)]
+    await ENGINE._emit({"type":"reposition","vehicle_id":vehicle_id,"warehouse":warehouse,"message":f"MANUAL REPOSITION {vehicle_id} → {warehouse}"})
+    ENGINE._schedule_route(v)
+    return {"ok":True,"vehicle_id":vehicle_id,"warehouse":warehouse}
+
+@APP.post("/fleet/reoptimize")
+async def reoptimize(_role=Depends(require_role("dispatcher"))):
+    ENGINE.last_global_opt_sim=ENGINE.sim_time-timedelta(minutes=ENGINE.GLOBAL_REOPT_MIN)
+    await ENGINE._maybe_global_reposition()
+    return {"ok":True,"plan":ENGINE.reposition_plan}
 
 @APP.post("/control/start")
 async def control_start(_role=Depends(require_role("admin"))):
