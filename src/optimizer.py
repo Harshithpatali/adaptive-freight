@@ -16,7 +16,7 @@ class Optimizer:
 
     def _local_candidate(self,v,sh,now,road_hint=None):
         if v.status!="enroute" or not self._capacity_ok(v,sh):return []
-        pickup=sh.warehouse_city or sh.pickup_city
+        pickup=getattr(sh,"handoff_city",None) or sh.warehouse_city or sh.pickup_city
         base=[s for s in v.stops if not s.completed]
         results=[]
         old_dist=route_distance([v.current_city]+[s.city for s in base]) if base else 0.0
