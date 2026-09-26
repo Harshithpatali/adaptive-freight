@@ -322,7 +322,7 @@ class Engine:
         if not was_queued:
             self.metrics["processed"]+=1
             self.metrics["revenue"]+=sh.revenue_usd
-        if decision_type=="consolidate":self.metrics["consolidated"]+=1
+        if decision_type in ("consolidate","reassign"):self.metrics["consolidated"]+=1
         if sh.is_backhaul:
             self.metrics["backhaul_shipments"]+=1
             self.metrics["backhaul_km_saved"]+=max(0.0,city_distance(sh.warehouse_city,v.base_city)-city_distance(sh.delivery_city,v.base_city))
@@ -373,6 +373,7 @@ class Engine:
             sh.assigned_vehicle=None;sh.status="queued";sh.queued_since=self.sim_time
             self.metrics["consolidated"]=max(0,self.metrics["consolidated"]-1)
             self.metrics["allocated_actual_cost"]=max(0.0,self.metrics["allocated_actual_cost"]-sh.actual_cost_usd)
+            sh.actual_cost_usd=0.0;sh.adaptive_distance_km=0.0;sh.adaptive_time_min=0.0;sh.cost_saving_usd=0.0;sh.time_saving_min=0.0
             self._queue_order(sh);self._schedule_route(v)
         await self._emit({"type":"driver","offer_id":offer_id,"shipment_id":sid,"vehicle_id":offer["vehicle_id"],
                           "decision":"rejected","message":f"DRIVER REJECTED {offer_id} — optimizer will find the next feasible move"})
@@ -692,7 +693,7 @@ class Engine:
                 "baseline_assigned_cost":round(baseline_assigned,2),"cost_savings_usd":round(cost_savings,2),
                 "cost_savings_pct":round(100*cost_savings/max(1,baseline_assigned),1),
                 "avg_time_saved_min":round(avg_time_saved,1),
-                "dispatches_avoided":max(0,self.metrics["received"]-self.metrics["dispatched"]),
+                "dispatches_avoided":max(0,self.metrics["processed"]-self.metrics["dispatched"]),
                 "empty_km_pct":round(100*self.metrics["empty_km"]/max(1,self.metrics["km"]),1),
                 "on_time_pct":round(100*self.metrics["on_time_deliveries"]/max(1,self.metrics["delivered"]),1)
             },
