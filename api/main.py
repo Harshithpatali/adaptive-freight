@@ -62,7 +62,7 @@ async def startup():
 async def shutdown(): await ENGINE.stop()
 
 @APP.get("/health")
-async def health(): return {"status":"ok","engine_task":bool(ENGINE.task and not ENGINE.task.done()),"running":ENGINE.running,"router":ENGINE.router.base_url}
+async def health(): return {"status":"ok","engine_task":bool(ENGINE.task and not ENGINE.task.done()),"running":ENGINE.running,"router":ENGINE.router.base_url}\n\n@APP.get("/version")\nasync def version():\n    return {"service":"adaptive-freight-api","version":"2026-09-26-render-1","state_endpoint":"/state","stream_endpoint":"/ws"}
 @APP.get("/ready")
 async def ready(): return {"ready":bool(ENGINE.task and not ENGINE.task.done()),"router_configured":bool(ENGINE.router.base_url)}
 @APP.get("/state")
