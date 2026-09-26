@@ -274,7 +274,8 @@ class Engine:
             package_length_m=float(order.get("package_length_m",0.0)),
             package_width_m=float(order.get("package_width_m",0.0)),
             package_height_m=float(order.get("package_height_m",0.0)),
-            pickup_service_min=ps,delivery_service_min=ds)
+            pickup_service_min=ps,delivery_service_min=ds,
+            order_arrival_at=pd.Timestamp(order.get("arrival_time",now)).to_pydatetime() if order.get("arrival_time") is not None else now)
         sh.warehouse_city=nearest_warehouse(sh.pickup_city)
         sh.original_warehouse_city=sh.warehouse_city
         return sh
@@ -526,7 +527,7 @@ class Engine:
                         sh.status="delivered";self.metrics["delivered"]+=1
                         v.current_load_kg=max(0,v.current_load_kg-sh.weight_kg);v.current_volume_m3=max(0,v.current_volume_m3-sh.volume_m3)
                         v.assigned_shipments=[x for x in v.assigned_shipments if x!=sid]
-                        sh.adaptive_time_min=round((self.sim_time-(sh.assigned_at or self.sim_time)).total_seconds()/60,2)
+                        sh.adaptive_time_min=round((self.sim_time-(sh.order_arrival_at or sh.assigned_at or self.sim_time)).total_seconds()/60,2)
                         sh.time_saving_min=round(sh.baseline_time_min-sh.adaptive_time_min,2);self.metrics["time_saved_min"]+=sh.time_saving_min
                         if self.sim_time<=sh.delivery_deadline:self.metrics["on_time_deliveries"]+=1
                         await self._emit({"type":"delivery","shipment_id":sid,"vehicle_id":v.vehicle_id,
