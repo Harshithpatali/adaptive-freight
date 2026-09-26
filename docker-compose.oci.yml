@@ -73,7 +73,7 @@ services:
     expose:
       - "5000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:5000/route/v1/driving/0,0;0.01,0.01?overview=false' >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:5000/route/v1/driving/-74.006,40.7128;-74.005,40.7138?overview=false' >/dev/null 2>&1 || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 12
