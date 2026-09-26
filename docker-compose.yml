@@ -1,0 +1,54 @@
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      APP_HOST: 0.0.0.0
+      ROUTER_URL: ${ROUTER_URL:-https://router.project-osrm.org}
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg2://freight:${POSTGRES_PASSWORD:-freight}@postgres:5432/freight
+      SIM_MINUTES_PER_SECOND: ${SIM_MINUTES_PER_SECOND:-2.0}
+      ENGINE_TICK_MS: 200
+      API_KEYS: ${API_KEYS:?set API_KEYS=key:role,... in .env before deploying}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      DEMO_ORDER_STREAM: ${DEMO_ORDER_STREAM:-false}
+    depends_on:
+      redis: {condition: service_started}
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: freight
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-freight}
+      POSTGRES_DB: freight
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freight"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    ports: ["6379:6379"]
+    restart: unless-stopped
+
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    profiles: ["routing"]
+    command: ["osrm-routed","--algorithm","mld","/data/us-latest.osrm"]
+    volumes:
+      - ./osrm-data:/data:ro
+    ports: ["5000:5000"]
+
+volumes:
+  pgdata:
