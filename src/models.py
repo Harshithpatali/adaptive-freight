@@ -38,13 +38,14 @@ class Shipment:
     cost_saving_usd:float=0.0
     time_saving_min:float=0.0
     queued_since:Optional[datetime]=None
+    order_arrival_at:Optional[datetime]=None
     is_backhaul:bool=False
     decision_reason:str=""
     decision_score:float=0.0
 
     def to_dict(self):
         d=asdict(self)
-        for k in ("pickup_deadline","delivery_deadline","assigned_at","baseline_eta","queued_since"):
+        for k in ("pickup_deadline","delivery_deadline","assigned_at","baseline_eta","queued_since","order_arrival_at"):
             if d[k]: d[k]=d[k].isoformat()
         return d
 
