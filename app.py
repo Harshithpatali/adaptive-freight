@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os,time,requests
+import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Adaptive Freight Control Tower",page_icon="🚚",layout="wide")
