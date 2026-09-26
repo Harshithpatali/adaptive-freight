@@ -345,13 +345,34 @@ class Engine:
         await self.start();await self.bus.publish({"type":"engine","action":"resumed"})
 
     def snapshot(self):
-        now=self.sim_time;at_risk=sum(1 for sh in self.shipments.values() if sh.status in ("assigned","picked_up") and sh.delivery_deadline<now+timedelta(minutes=30))
-        cost_savings=self.metrics["baseline_cost"]-self.metrics["allocated_actual_cost"];avg_time_saved=self.metrics["time_saved_min"]/max(1,self.metrics["delivered"]);warehouse_rows=[]
-        for wh,ids in sorted(self.warehouse_queues.items()):
+        now=self.sim_time
+        at_risk=sum(1 for sh in self.shipments.values() if sh.status in ("assigned","picked_up") and sh.delivery_deadline<now+timedelta(minutes=30))
+        cost_savings=self.metrics["baseline_cost"]-self.metrics["allocated_actual_cost"]
+        avg_time_saved=self.metrics["time_saved_min"]/max(1,self.metrics["delivered"])
+        warehouse_rows=[]
+        warehouse_ids=self.cities[self.cities["type"]=="hub"]["city_id"].tolist()
+
+        for wh in warehouse_ids:
+            ids=self.warehouse_queues.get(wh,[])
             live=[self.shipments[sid] for sid in ids if sid in self.shipments and self.shipments[sid].status=="queued"]
-            if not live:continue
-            oldest=min((s.queued_since or now) for s in live);wait=(now-oldest).total_seconds()/60
-            warehouse_rows.append({"warehouse":wh,"queue_depth":len(live),"weight_kg":round(sum(s.weight_kg for s in live),1),"volume_m3":round(sum(s.volume_m3 for s in live),2),"oldest_wait_min":round(wait,1),"departure_due":wait>=self.WAREHOUSE_DEPARTURE_MIN})
+            oldest=min((s.queued_since or now) for s in live) if live else None
+            wait=(now-oldest).total_seconds()/60 if oldest else 0.0
+            available=[v.vehicle_id for v in self.vehicles.values() if v.status=="idle" and v.current_city==wh]
+            departure_deadline=(oldest+timedelta(minutes=self.WAREHOUSE_DEPARTURE_MIN)).isoformat() if oldest else None
+            warehouse_rows.append({
+                "warehouse":wh,
+                "orders":len(live),
+                "queue_depth":len(live),
+                "weight_kg":round(sum(s.weight_kg for s in live),1),
+                "volume_m3":round(sum(s.volume_m3 for s in live),2),
+                "oldest_wait_min":round(wait,1),
+                "departure_due":bool(wait>=self.WAREHOUSE_DEPARTURE_MIN),
+                "departure_deadline":departure_deadline,
+                "departure_in_min":round(max(0.0,self.WAREHOUSE_DEPARTURE_MIN-wait),1) if live else None,
+                "available_vehicle_count":len(available),
+                "available_vehicles":available
+            })
+
         return {"sim_time":self.sim_time.isoformat(),"running":self.running,"speed":self.speed,"orders_processed":self.metrics["processed"],"orders_total":len(self.orders),
                 "queue_depth":sum(1 for s in self.shipments.values() if s.status=="queued"),
                 "metrics":{**self.metrics,"consolidation_rate":round(100*self.metrics["consolidated"]/max(1,self.metrics["processed"]),1),
