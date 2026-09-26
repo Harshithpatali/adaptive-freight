@@ -140,7 +140,11 @@ for o in offers[:12]:
     if c3.button("Reject",key=f"reject_{o['offer_id']}",use_container_width=True):
         api(f"/driver-offers/{o['offer_id']}","post",{"accept":False})
         st.rerun()
-    st.caption(o["reason"])
+    st.caption("Why: "+o["reason"])
+    if o.get("rejections"):
+        with st.expander("Rejected candidates"):
+            for r in o["rejections"]:
+                st.write(f"{r.get('vehicle_id','?')}: {r.get('reason','constraint')}")
 
 st.subheader("🧠 Demand Forecast + Fleet Repositioning")
 st.dataframe([
