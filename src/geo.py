@@ -6,6 +6,7 @@ import pandas as pd
 from .config import settings
 
 CITIES = pd.read_csv(settings.base_dir / "data/cities.csv").set_index("city_id")
+WAREHOUSES = tuple(CITIES.index[CITIES["type"].eq("hub")].tolist())
 
 @lru_cache(maxsize=8192)
 def coords(city: str) -> tuple[float, float]:
@@ -26,6 +27,12 @@ def city_distance(a: str, b: str) -> float:
 def route_distance(cities: Iterable[str]) -> float:
     vals = list(cities)
     return round(sum(city_distance(vals[i], vals[i+1]) for i in range(len(vals)-1)), 2)
+
+@lru_cache(maxsize=8192)
+def nearest_warehouse(city: str) -> str:
+    if city in WAREHOUSES:
+        return city
+    return min(WAREHOUSES, key=lambda wh: city_distance(city, wh))
 
 def nearest_city(lat: float, lon: float) -> str:
     p=(lat,lon)
