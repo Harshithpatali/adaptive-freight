@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="500" viewBox="0 0 900 500">
+<rect width="900" height="500" fill="white"/>
+<text x="25" y="38" font-family="Arial" font-size="24" font-weight="700">Warehouse batching: more waiting ⇒ more consolidation, more SLA risk</text>
+<line x1="75" y1="425" x2="850" y2="425" stroke="#222"/><line x1="75" y1="80" x2="75" y2="425" stroke="#222"/>
+<g font-family="Arial" font-size="13" fill="#555"><text x="55" y="430">0</text><text x="48" y="360">0.2</text><text x="48" y="290">0.4</text><text x="48" y="220">0.6</text><text x="48" y="150">0.8</text><text x="48" y="90">1.0</text></g>
+<path d="M90 420 C210 300 300 210 430 150 C550 100 690 105 810 125" stroke="#1b824c" stroke-width="5" fill="none"/>
+<path d="M90 420 C250 415 390 390 500 335 C620 275 720 175 810 85" stroke="#c63d2f" stroke-width="5" fill="none"/>
+<path d="M90 420 C250 300 370 215 510 240 C650 265 745 335 810 405" stroke="#2d4056" stroke-width="4" stroke-dasharray="10 7" fill="none"/>
+<circle cx="500" cy="240" r="13" fill="#2d4056"/><text x="525" y="225" font-family="Arial" font-size="17">sweet spot</text>
+<line x1="810" y1="80" x2="810" y2="425" stroke="#7d8a8d" stroke-width="2" stroke-dasharray="4 5"/>
+<text x="720" y="455" font-family="Arial" font-size="14" fill="#7d8a8d">120-min departure cap</text>
+<g font-family="Arial" font-size="15"><text x="100" y="105" fill="#167a47">Consolidation benefit</text><text x="100" y="130" fill="#c63d2f">SLA exposure</text><text x="100" y="155" fill="#2d4056">Net value</text></g>
+<text x="335" y="470" font-family="Arial" font-size="15">Time queued at warehouse (simulated minutes)</text>
+</svg>
