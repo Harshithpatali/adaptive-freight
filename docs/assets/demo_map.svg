@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="650" viewBox="0 0 1000 650">
+<rect width="1000" height="650" fill="#f4f6f8"/>
+<text x="25" y="38" font-family="Arial" font-size="24" font-weight="700">Dynamic route insertion, warehouse queue, repositioning</text>
+<g stroke="#cbd2d8" stroke-width="5" fill="none"><path d="M690 145 L525 260 L350 430 L780 430"/><path d="M525 260 L780 430"/><path d="M690 145 L780 430"/></g>
+<path d="M350 430 L780 430" stroke="#1b824c" stroke-width="7" fill="none"/>
+<path d="M350 430 L650 540" stroke="#1b824c" stroke-width="7" fill="none"/>
+<path d="M650 540 L780 430" stroke="#8b989b" stroke-width="5" stroke-dasharray="12 8" fill="none"/>
+<path d="M525 260 L690 145" stroke="#d33c2f" stroke-width="5" stroke-dasharray="8 8" fill="none"/>
+<g font-family="Arial" font-weight="700" font-size="18" fill="#2d4056">
+<text x="665" y="120">Dallas</text><text x="485" y="250">Austin</text><text x="285" y="455">San Antonio</text><text x="785" y="455">Houston</text><text x="640" y="570">Corpus Christi</text><text x="475" y="292">Waco</text>
+</g>
+<g fill="#2d4056"><rect x="670" y="135" width="28" height="28"/><rect x="510" y="250" width="28" height="28"/><rect x="765" y="415" width="28" height="28"/><rect x="335" y="415" width="28" height="28"/></g>
+<g font-family="Arial" font-size="15"><rect x="80" y="170" width="300" height="72" rx="8" fill="white" stroke="#2d4056" stroke-width="2"/><text x="100" y="198">Warehouse queue</text><text x="100" y="222">3 orders • 2h timer</text>
+<rect x="65" y="285" width="390" height="75" rx="8" fill="white" stroke="#1b824c" stroke-width="2"/><text x="85" y="314" fill="#167a47">New shipment B → C appears</text><text x="85" y="338" fill="#167a47">SLA buffer 115 min • detour 12.4%</text></g>
+<text x="55" y="620" font-family="Arial" font-size="14" fill="#7d8a8d">Schematic • approximate hub positions • not to scale</text>
+</svg>
