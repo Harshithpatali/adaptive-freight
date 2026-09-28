@@ -1,1078 +1,379 @@
+# Adaptive Freight
 
-# Adaptive Freight — Real-Time Logistics Optimization
+**Real-time freight consolidation, routing, and fleet repositioning under capacity and time-window constraints.**
 
-> **An Operations Research, Applied Mathematics, and Data Science approach to dynamic freight consolidation, routing, and fleet repositioning under capacity, time-window, and operational constraints.**
+Adaptive Freight is an operations-research prototype that treats freight movement as a *dynamic* decision problem instead of a static shortest-path problem. When a new shipment arrives while trucks are already on the road, the system decides whether to:
 
-Adaptive Freight is a real-time logistics optimization platform built around a difficult transportation question:
+1. insert it into an active route,
+2. queue it at a warehouse for consolidation,
+3. hand it to another vehicle (e.g. after a breakdown), or
+4. dispatch a new vehicle.
 
-> **When a new shipment appears after vehicles have already started moving, should the shipment be inserted into an existing route, held at a warehouse for consolidation, transferred to another vehicle after a disruption, or served by a newly dispatched vehicle?**
+Every decision is feasibility-checked, costed against a counterfactual baseline, and explained.
 
-The project treats freight movement as a **dynamic optimization problem** rather than a static shortest-path problem.
-
-The system continuously observes orders, vehicle positions, route progress, warehouse queues, service times, capacity, demand estimates, disruptions, and delivery deadlines. Decisions combine:
-
-- dynamic route-insertion heuristics
-- weight and volume constraints
-- road travel times from OSRM
-- pickup and delivery time windows
-- warehouse batching
-- marginal route distance and cost
-- empty-mile and backhaul analysis
-- disruption recovery
-- short-horizon demand-rate forecasting
-- OR-Tools CP-SAT fleet repositioning
-- event-driven simulation
-- replayable operational history
-
-The emphasis is not simply **find the shortest route**. It is the interaction between **geometry, combinatorial optimization, time, uncertainty, and operational decisions**.
+**Live backend:** https://adaptive-freight.onrender.com
 
 ---
 
-# 1. Problem statement
+## Contents
 
-A traditional transportation example often assumes that all shipments are known in advance, routes are planned once, travel times are deterministic, and vehicles operate from fixed depots.
-
-Real freight networks do not behave this way.
-
-Orders arrive continuously. Vehicles are already moving. New freight can appear away from the current route. A vehicle can have physical capacity but insufficient time to make another stop. A warehouse can accumulate enough freight to make consolidation attractive, but waiting too long can threaten service levels. A vehicle failure can invalidate an otherwise feasible plan.
-
-The resulting problem is naturally modeled as a **dynamic capacitated routing and consolidation problem with time windows**.
-
-At each decision epoch, the system asks:
-
-$$
-\text{Which feasible transportation action should be taken now?}
-$$
-
-Possible actions are:
-
-- insert a shipment into an active route,
-- queue it at a warehouse,
-- assign another active vehicle,
-- dispatch a warehouse vehicle,
-- reposition an idle vehicle,
-- transfer cargo after a breakdown,
-- or defer the shipment until a later decision point.
+- [Highlights](#highlights)
+- [Core idea](#core-idea)
+- [Mathematical model](#mathematical-model)
+- [Architecture](#architecture)
+- [Visual overview](#visual-overview)
+- [Modules](#modules)
+- [API](#api)
+- [Getting started](#getting-started)
+- [Configuration](#configuration)
+- [Deployment](#deployment)
+- [Testing](#testing)
+- [Assumptions and limitations](#assumptions-and-limitations)
+- [Roadmap](#roadmap)
+- [Author](#author)
 
 ---
 
-# 2. Central logistics idea
+## Highlights
 
-Suppose an active truck is traveling:
-
-$$
-A \rightarrow C
-$$
-
-and a new shipment appears:
-
-$$
-B \rightarrow C
-$$
-
-A simple system may immediately dispatch another truck.
-
-Adaptive Freight first tests whether:
-
-$$
-A \rightarrow B \rightarrow C
-$$
-
-is operationally feasible.
-
-The truck must have enough remaining:
-
-- weight capacity,
-- volume capacity,
-
-and the modified route must satisfy:
-
-- route-distance limits,
-- detour limits,
-- pickup deadline,
-- delivery deadline,
-- pickup service time,
-- delivery service time.
-
-The economic condition is:
-
-$$
-\text{Incremental cost of consolidation}
-<
-\text{Dedicated-shipment baseline cost}
-$$
-
-subject to those constraints.
-
-This is the core mathematical idea of the project.
+- **Dynamic route insertion** into vehicles that are already moving, with separate weight and volume checks
+- **Road-network ETAs** from OSRM, with real-vs-fallback route tracking
+- **Pickup and delivery time windows**, including loading/unloading service time and an SLA buffer
+- **Warehouse batching**: queue until the truck is nearly full or 120 simulated minutes elapse
+- **Empty-mile and backhaul analysis**
+- **Breakdown recovery** via cargo handoff to a replacement vehicle
+- **Rate-based demand forecasting** feeding **OR-Tools CP-SAT** idle-fleet repositioning
+- **Driver-in-the-loop** accept/reject offers
+- **Explainable decisions**: each choice lists why competing candidates were rejected
+- **Counterfactual metrics**: cost and time saved versus a dedicated-vehicle baseline
+- **Event-driven simulation** with replayable history, a REST/WebSocket API, and a Streamlit control tower
 
 ---
 
-# 3. Mathematical formulation
+## Core idea
 
-## 3.1 Sets and parameters
+Suppose an active truck is traveling **A → C**, and a new shipment appears going **B → C**. A naive system dispatches another truck. Adaptive Freight first tests whether **A → B → C** is feasible:
 
-Let:
+- enough remaining weight and volume capacity
+- route-distance and detour limits respected
+- pickup and delivery deadlines met, including service times
 
-- $V$ = set of vehicles
-- $S$ = set of shipments
-- $W$ = set of warehouses
-- $C$ = set of city/network nodes
+and accepts it only if consolidation is cheaper than the baseline:
 
-For shipment $s$:
+$$
+C_{\text{incremental}} < C_{\text{baseline}}
+$$
 
-- $o_s$ = pickup location
-- $d_s$ = delivery location
-- $w_s$ = shipment weight
-- $q_s$ = shipment volume
-- $t_s^p$ = pickup deadline
-- $t_s^d$ = delivery deadline
-- $tau_s^p$ = pickup service time
-- $tau_s^d$ = delivery service time
-- $r_s$ = shipment revenue
+Two design principles follow from this:
 
-For vehicle $v$:
-
-- $Q_v$ = weight capacity
-- $U_v$ = volume capacity
-- $q_v(t)$ = current loaded weight
-- $u_v(t)$ = current loaded volume
-- $c_v$ = cost per kilometer
-- $L_v$ = maximum route distance
-- $z_v(t)$ = current position
-- $nu_v$ = nominal speed
+- **Feasible ≠ operationally attractive.** Spare capacity does not justify an arbitrarily large detour.
+- **Fast local decisions plus slow global planning.** Per-order insertion runs online; fleet repositioning runs periodically with an exact solver.
 
 ---
 
-# 4. Capacity feasibility
+## Mathematical model
 
-A candidate shipment can be assigned only if both physical capacity constraints hold:
+### Notation
 
-$$
-q_v(t)+w_s\leq Q_v
-$$
+| Symbol | Meaning |
+|---|---|
+| $V, S, W$ | vehicles, shipments, warehouses |
+| $o_s, d_s$ | pickup and delivery location of shipment $s$ |
+| $w_s, a_s$ | shipment weight, volume |
+| $t^p_s, t^d_s$ | pickup and delivery deadlines |
+| $\tau^p_s, \tau^d_s$ | pickup and delivery service times |
+| $r_s$ | shipment revenue |
+| $W_v, U_v$ | vehicle weight and volume capacity |
+| $\ell^w_v(t), \ell^u_v(t)$ | current loaded weight and volume |
+| $c_v$ | cost per km |
+| $L_v$ | maximum route distance |
 
-and:
+### Feasibility
 
-$$
-u_v(t)+q_s\leq U_v
-$$
-
-The model therefore treats weight and volume separately.
-
-This is important because a vehicle can have spare weight capacity while being effectively full from a volume perspective.
-
----
-
-# 5. Dynamic route insertion
-
-Let the current active route of vehicle $v$ be:
+A vehicle $v$ can take shipment $s$ only if:
 
 $$
-R_v=(z_v,r_1,r_2,\ldots,r_n)
+\ell^w_v(t) + w_s \le W_v, \qquad \ell^u_v(t) + a_s \le U_v
 $$
 
-For a new shipment $s$, the optimizer considers feasible positions for:
-
-1. the pickup stop,
-2. the delivery stop.
-
-A candidate route has the form:
+For a route $R_v = (z_v, r_1, \dots, r_n)$, the optimizer tries every insertion of $o_s$ then $d_s$ (pickup before delivery) to form $R'_v$, and computes:
 
 $$
-R'_v=(z_v,\ldots,o_s,\ldots,d_s,\ldots)
+\Delta D = D(R'_v) - D(R_v), \qquad \delta = \frac{\Delta D}{D(R_v)}
 $$
 
-with pickup occurring before delivery.
+Candidates violating $D(R'_v) \le L_v$ or the detour threshold on $\delta$ are rejected.
 
-The incremental route distance is:
-
-$$
-\Delta D=D(R'_v)-D(R_v)
-$$
-
-The optimizer searches insertion positions and rejects candidates that violate route or detour limits.
-
-This is a dynamic version of route insertion: the vehicle is **already moving**, so the problem is not solved from a clean depot state.
-
----
-
-# 6. Detour constraint
-
-For a sufficiently long existing route, the relative detour is:
+### Time windows and SLA buffer
 
 $$
-\delta=\frac{\Delta D}{D(R_v)}
+T_{\text{pickup}} = T_{\text{current}\to\text{pickup}} + \tau^p_s
 $$
 
-The implementation uses an explicit detour threshold to prevent the optimizer from accepting mathematically feasible but operationally disproportionate deviations.
-
-This creates an important distinction:
-
 $$
-\text{Feasible} \neq \text{Operationally attractive}
+T_{\text{delivery}} = T_{\text{road}} + \tau^p_s + \tau^d_s
 $$
 
-A truck having spare capacity is not sufficient justification for an arbitrarily large detour.
-
----
-
-# 7. Time-window feasibility
-
-A candidate must satisfy both pickup and delivery deadlines.
-
-Estimated pickup duration:
+Feasibility requires $t_{\text{now}} + T_{\text{pickup}} \le t^p_s$ and $t_{\text{now}} + T_{\text{delivery}} \le t^d_s$. The slack
 
 $$
-T_{pickup}
-=
-T_{current\rightarrow pickup}
-+
-tau_s^p
+B_s = t^d_s - (t_{\text{now}} + T_{\text{delivery}})
 $$
 
-Estimated delivery duration:
+is reported as the **SLA buffer**, separating comfortable plans from ones that barely make the deadline.
+
+### Cost and counterfactual
 
 $$
-T_{delivery}
-=
-T_{road}
-+
-tau_s^p
-+
-tau_s^d
+C_{\text{incremental}} = \Delta D \cdot c_v, \qquad
+S_s = C_{\text{baseline}} - C_{\text{incremental}}
 $$
 
-The feasibility inequalities are:
+Each shipment carries a traditional-vs-adaptive comparison:
 
 $$
-t_{now}+T_{pickup}\leq t_s^p
+\Delta C = C_{\text{traditional}} - C_{\text{adaptive}}, \qquad
+\Delta T = T_{\text{traditional}} - T_{\text{adaptive}}
 $$
 
-and:
+### Candidate score
+
+Feasible candidates are ranked by an interpretable weighted score, not a learned model:
 
 $$
-t_{now}+T_{delivery}\leq t_s^d
+\text{Score}(v,s) = \alpha S_s - \beta \Delta D - \gamma \delta + \eta B_s + \kappa I_{\text{backhaul}} + \lambda I_{\text{priority}}
 $$
 
-This explicitly models loading and unloading time rather than pretending that a warehouse or destination takes zero time.
+Each term has a direct operational meaning: saving, added kilometers, detour, schedule slack, backhaul opportunity, and shipment priority.
+
+### Warehouse queueing
+
+If no active truck is feasible, the shipment joins the queue $Q_w(t)$ of its nearest warehouse. A batch departs when the load is approximately full or the oldest order has waited $T^{\max}_{\text{warehouse}} = 120$ simulated minutes. This is an explicit trade-off: more waiting means more consolidation, but also more SLA exposure.
+
+### Empty miles
+
+$$
+D_{\text{total}} = D_{\text{loaded}} + D_{\text{empty}}, \qquad
+\text{Empty-mile ratio} = \frac{D_{\text{empty}}}{D_{\text{total}}}
+$$
+
+### Demand forecasting
+
+For $N_w$ orders observed over a rolling window $\Delta t$:
+
+$$
+\hat\lambda_w = \frac{N_w}{\Delta t}, \qquad \hat D_w(H) = \hat\lambda_w H
+$$
+
+Average weight and volume are projected the same way. This is a transparent rate estimator, not a trained ML model.
+
+### Fleet repositioning (CP-SAT)
+
+Let $x_{vw} = 1$ if idle vehicle $v$ is sent to warehouse $w$:
+
+$$
+\max \sum_{v,w} (\rho D_w - \gamma d_{vw})\, x_{vw}
+\quad \text{s.t.} \quad \sum_w x_{vw} \le 1 \;\; \forall v
+$$
+
+where $D_w$ is forecast demand, $d_{vw}$ the vehicle-to-warehouse distance, $\rho$ the demand reward, and $\gamma$ the repositioning penalty. The model is small and solved with a short CP-SAT time budget.
+
+### System state
+
+The simulator evolves a state $X_t = (V_t, S_t, Q_t, R_t, F_t, M_t)$ (vehicles, shipments, queues, routes, forecasts, metrics). Each event maps $X_t \to X_{t+\Delta t}$.
 
 ---
 
-# 8. SLA buffer
+## Architecture
 
-For every feasible candidate the system calculates delivery slack:
+```mermaid
+flowchart TD
+    A[Live order feed] --> B[Nearest hub mapping]
+    B --> C{"Online route insertion<br/>capacity · road ETA · SLA<br/>detour · marginal cost"}
+    C -- feasible --> D[Driver offer]
+    C -- infeasible --> E[Warehouse queue]
+    D -- accept --> F[Route update]
+    D -- reject --> E
+    E -- "full or 2 h" --> G[Batch dispatch]
+    F --> H[OSRM road routing]
+    G --> H
+    H --> I[Vehicle simulator]
+    I --> J[Disruption recovery]
+    I --> K[Demand forecast]
+    K --> L["Fleet repositioning<br/>(CP-SAT)"]
+    J --> M[Event log · replay · WebSocket]
+    K --> M
+    L --> M
+    M --> N[Streamlit control tower]
+```
 
-$$
-B_s=t_s^d-(t_{now}+T_{delivery})
-$$
+### Two optimization timescales
 
-This is displayed as **SLA buffer in minutes**.
+| Layer | Trigger | Method | Goal |
+|---|---|---|---|
+| Online | each new order | fast candidate generation and constraint filtering | best feasible active truck, low latency |
+| Global | every few simulated minutes | CP-SAT | where to place idle capacity |
 
-The buffer separates two plans that are both technically feasible:
-
-- a plan with large schedule slack,
-- a plan that reaches the deadline with almost no remaining buffer.
-
-That difference matters in real operations because a small disturbance can turn a low-buffer plan into a late delivery.
-
----
-
-# 9. Cost and counterfactual reasoning
-
-For an active route, marginal transportation cost is approximated by:
-
-$$
-C_{incremental}=\Delta D\cdot c_v
-$$
-
-The dedicated baseline is:
-
-$$
-C_{baseline}=D_{baseline}\cdot c_{baseline}
-$$
-
-The estimated consolidation saving is:
-
-$$
-S_s=C_{baseline}-C_{incremental}
-$$
-
-The system therefore has a shipment-level counterfactual:
-
-$$
-\Delta C=C_{traditional}-C_{adaptive}
-$$
-
-and:
-
-$$
-\Delta T=T_{traditional}-T_{adaptive}
-$$
-
-This lets the project answer a more useful question than "which route did the optimizer choose?":
-
-> **What changed because the optimizer was used?**
+The project does not claim global optimality at every instant. It aims for **interpretable, feasible, economically meaningful decisions at operational timescales.**
 
 ---
 
-# 10. Multi-objective candidate score
+## Visual overview
 
-The online optimizer uses an explicit, interpretable decision score.
+### Demo map
 
-Conceptually:
+A truck is already heading **A → C** (Corpus Christi → Houston). A new shipment appears at **B** (San Antonio) bound for C. The optimizer checks capacity, detour, and both deadlines, then accepts **A → B → C**. Freight that no truck can absorb waits in a warehouse queue, and idle vehicles are repositioned toward forecast demand.
 
-$$
-Score(v,s)=
-alpha S_s
--beta\Delta D
--gamma\delta
-+eta B_s
-+kappa I_{backhaul}
-+lambda I_{priority}
-$$
+![Demo map](docs/assets/demo_map.png)
 
-The concrete implementation combines:
+### Decision flow for a new order
 
-- monetary saving,
-- incremental kilometers,
-- detour,
-- SLA buffer,
-- shipment priority,
-- backhaul opportunity.
+```mermaid
+flowchart TD
+    S([New shipment arrives]) --> H[Map to nearest warehouse]
+    H --> V[Filter available active vehicles]
+    V --> CAP{"Weight and volume<br/>fit?"}
+    CAP -- no --> R1[Reject: capacity]
+    CAP -- yes --> INS[Enumerate pickup / delivery<br/>insertion positions]
+    INS --> TW{"Pickup and delivery<br/>deadlines met?"}
+    TW -- no --> R2[Reject: SLA]
+    TW -- yes --> DT{"Route length and<br/>detour within limits?"}
+    DT -- no --> R3[Reject: detour / distance]
+    DT -- yes --> ECO{"Incremental cost lower<br/>than dedicated baseline?"}
+    ECO -- no --> R4[Reject: not economical]
+    ECO -- yes --> SC[Score feasible candidates]
+    SC --> BEST[Choose highest score]
+    BEST --> OFFER[Send driver offer]
+    R1 --> NONE
+    R2 --> NONE
+    R3 --> NONE
+    R4 --> NONE
+    NONE{"Any feasible<br/>candidate?"} -- no --> Q[Warehouse queue]
+    Q --> DISP{"Load ~full or<br/>120 min elapsed?"}
+    DISP -- yes --> BATCH[Dispatch smallest suitable truck]
+    DISP -- no --> Q
+```
 
-The score is an explicit decision function, not a learned black-box probability.
+### Driver offer lifecycle
 
-The advantage is interpretability: each term has a direct operational meaning.
+```mermaid
+sequenceDiagram
+    participant O as Optimizer
+    participant D as Driver
+    participant E as Engine
+    O->>D: Offer (vehicle, added km, ETA, saving, SLA buffer)
+    alt accepted
+        D->>E: Accept
+        E->>E: Update route, log event
+    else rejected or timeout
+        D->>E: Reject
+        E->>O: Requeue shipment, search again
+    end
+```
 
----
+### Breakdown recovery
 
-# 11. Road-network routing
+```mermaid
+flowchart LR
+    B([Vehicle breakdown]) --> M[Mark handoff point]
+    M --> F{"Replacement vehicle<br/>feasible?"}
+    F -- yes --> T[Transfer cargo]
+    T --> C[Continue delivery]
+    F -- no --> Q[Requeue at warehouse]
+    C --> L[(Event log)]
+    Q --> L
+```
 
-Straight-line distance is not enough for operational ETA.
+### Warehouse batching trade-off
 
-The routing layer uses OSRM for road-network travel time and route geometry.
+Waiting increases consolidation but also SLA exposure, so a departure cap (120 simulated minutes) bounds the wait.
 
-Candidate evaluation uses travel-time information corresponding to:
+![Warehouse trade-off](docs/assets/warehouse_tradeoff.png)
 
-$$
-T_{current\rightarrow pickup}
-$$
+### Counterfactual: traditional vs adaptive
 
-and:
+Every shipment carries a dedicated-vehicle baseline, so the effect of consolidation is measured instead of assumed.
 
-$$
-T_{pickup\rightarrow delivery}
-$$
+![Traditional vs adaptive](docs/assets/traditional_vs_adaptive.png)
 
-Service time is then included:
+### Demand forecast
 
-$$
-T_{shipment}
-=
-T_{road}
-+
-tau_{pickup}
-+
-tau_{delivery}
-$$
+A rolling arrival rate feeds the CP-SAT repositioning model.
 
-The application tracks whether routing information came from a real OSRM route or a configured fallback.
+![Demand forecast](docs/assets/demand_forecast.png)
 
-The control tower exposes:
-
-- routing requests,
-- real route count,
-- fallback route count,
-- real-route percentage,
-- route quality,
-- routing error/circuit state.
-
----
-
-# 12. Warehouse queueing
-
-If no active truck can satisfy the constraints, the shipment is assigned to its nearest warehouse/hub and enters a queue.
-
-For warehouse $w$:
-
-$$
-Q_w(t)=
-\{s:\text{shipment }s\text{ waits at }w\}
-$$
-
-The queue tracks:
-
-- number of orders,
-- waiting weight,
-- waiting volume,
-- oldest wait,
-- departure deadline,
-- available vehicles,
-- incoming candidate trucks,
-- forecast demand.
-
-The current operational rule is:
-
-$$
-T_{warehouse}^{max}=120\text{ simulated minutes}
-$$
-
-or departure when the queued load is approximately full.
-
-This is an explicit service-vs-utilization trade-off:
-
-$$
-\text{More waiting}
-\Rightarrow
-\text{more consolidation}
-$$
-
-but:
-
-$$
-\text{More waiting}
-\Rightarrow
-\text{more SLA exposure}
-$$
+> The map, curves, and bar charts are **schematic or synthetic** illustrations of the model, not benchmark results. Replace them with exported control-tower screenshots or metrics from your own runs.
 
 ---
 
-# 13. Empty miles and backhaul
+## Modules
 
-Fleet efficiency cannot be measured only by loaded distance.
+```text
+adaptive-freight/
+├── api/main.py              FastAPI app
+├── src/
+│   ├── engine.py            event-driven simulation and state
+│   ├── optimizer.py         online route-insertion optimizer
+│   ├── global_optimizer.py  CP-SAT idle-fleet repositioning
+│   ├── forecast.py          rolling demand-rate estimator
+│   ├── models.py            Shipment, Stop, Vehicle
+│   ├── router.py            OSRM client and fallback
+│   ├── geo.py               geometry helpers
+│   ├── order_stream.py      live order generator
+│   ├── consolidation.py     warehouse batching
+│   ├── disruptions.py       breakdown and recovery
+│   ├── fleet.py, simulator.py, event_bus.py
+│   ├── persistence.py, auth.py, metrics.py
+├── web/                     map.html, dashboard.html
+├── tests/                   test_core.py, test_production.py
+├── scripts/                 OSRM prep and OCI deployment scripts
+├── app.py                   Streamlit control tower
+├── Dockerfile, docker-compose.yml, docker-compose.oci.yml
+├── render.yaml
+└── OCI_DEPLOYMENT.md
+```
 
-The system separates:
-
-$$
-D_{total}=D_{loaded}+D_{empty}
-$$
-
-and reports:
-
-$$
-Empty\ Mile\ Ratio=
-\frac{D_{empty}}{D_{total}}
-$$
-
-Backhaul opportunities are also identified and tracked.
-
-Metrics include:
-
-- empty kilometers,
-- empty-kilometer percentage,
-- backhaul shipment count,
-- backhaul kilometers saved,
-- repositioning kilometers.
-
-This provides a fleet-level perspective:
-
-> The objective is not just to reduce the distance of one shipment, but to improve the utilization of total transportation capacity.
+The optimizer pipeline: filter vehicles → check weight/volume → enumerate pickup/delivery insertions → fetch OSRM travel times → add service times → enforce time windows → compute detour and marginal cost → score → pick the best feasible candidate.
 
 ---
 
-# 14. Breakdown recovery
+## Explainability and evaluation
 
-A vehicle breakdown transforms the routing problem into a recovery problem.
-
-If vehicle $v_1$ fails at location $b$:
-
-$$
-v_1\rightarrow b\rightarrow\text{breakdown}
-$$
-
-the engine can mark $b$ as a handoff point and search for an alternative feasible vehicle.
-
-The replacement must still satisfy:
-
-- weight capacity,
-- volume capacity,
-- route constraints,
-- time-window constraints.
-
-The recovery process is:
-
-$$
-\text{broken vehicle}
-\rightarrow
-\text{cargo handoff}
-\rightarrow
-\text{replacement vehicle}
-\rightarrow
-\text{continued delivery}
-$$
-
-The event is recorded for later replay.
-
----
-
-# 15. Demand-rate forecasting
-
-The project contains a lightweight online forecasting model for warehouse demand.
-
-Recent arrivals are maintained over a rolling observation window.
-
-If $N_w$ orders are observed over $Delta t$:
-
-$$
-hat{lambda}_w=\frac{N_w}{Delta t}
-$$
-
-For horizon $H$:
-
-$$
-hat{D}_w(H)=hat{lambda}_w H
-$$
-
-Average recent weight and volume are projected in the same way.
-
-The forecast returns:
-
-- order forecast,
-- weight forecast,
-- volume forecast,
-- confidence.
-
-This is deliberately a transparent **rate-based forecast**, not a trained machine-learning model.
-
-It exists to demonstrate how statistical estimation can feed directly into a mathematical planning decision.
-
----
-
-# 16. Global fleet repositioning with OR-Tools
-
-Forecasts become useful when they influence idle-vehicle placement.
-
-Let:
-
-$$
-x_{vw}=
-\begin{cases}
-1,&\text{vehicle }v\text{ is sent to warehouse }w\\
-0,&\text{otherwise}
-\end{cases}
-$$
-
-A simplified objective is:
-
-$$
-max\sum_{v,w}
-( rho D_w-gamma d_{vw})x_{vw}
-$$
-
-where:
-
-- $D_w$ = forecast demand at warehouse $w$
-- $d_{vw}$ = distance from vehicle $v$ to warehouse $w$
-- $rho$ = demand reward
-- $gamma$ = repositioning penalty
-
-Vehicle assignment constraint:
-
-$$
-\sum_w x_{vw}\le1
-\qquad\forall v
-$$
-
-So an idle vehicle can be assigned to at most one destination in each planning cycle.
-
-The implementation solves this small combinatorial problem using **OR-Tools CP-SAT** with a short time budget.
-
----
-
-# 17. Why there are two optimization layers
-
-Trying to solve one large exact dynamic VRP after every incoming order would be unnecessary and computationally expensive.
-
-The project separates decisions by timescale.
-
-## Local online optimization
-
-For a new shipment:
-
-$$
-\text{Find the best feasible active truck}
-$$
-
-This requires low latency.
-
-## Global periodic optimization
-
-Every few simulated minutes:
-
-$$
-\text{Where should idle fleet capacity be positioned?}
-$$
-
-This is solved with a dedicated CP-SAT model.
-
-The architecture is therefore:
-
-$$
-\boxed{
-\text{fast local route decisions}
-+
-\text{periodic global fleet planning}
-}
-$$
-
-This is a deliberate Operations Research design trade-off.
-
----
-
-# 18. Event-driven simulation
-
-The system behaves like a discrete-event simulator.
-
-Events include:
-
-- order arrival,
-- warehouse allocation,
-- route insertion,
-- driver offer,
-- driver accept/reject,
-- pickup,
-- loading,
-- delivery,
-- warehouse dispatch,
-- vehicle breakdown,
-- cargo transfer,
-- vehicle repair,
-- fleet repositioning,
-- periodic global optimization.
-
-The dynamic system state can be viewed as:
-
-$$
-X_t=
-(
-V_t,
-S_t,
-Q_t,
-R_t,
-F_t,
-M_t
-)
-$$
-
-where:
-
-- $V_t$ = vehicle state
-- $S_t$ = shipment state
-- $Q_t$ = warehouse queues
-- $R_t$ = routes
-- $F_t$ = forecasts
-- $M_t$ = metrics
-
-An event creates:
-
-$$
-X_t\xrightarrow{event}X_{t+Delta t}
-$$
-
-This makes the application a dynamic operational simulator instead of a static notebook.
-
----
-
-# 19. Live order stress stream
-
-The default live stream produces:
-
-$$
-1\text{ order}/15\text{ seconds}
-$$
-
-which is:
-
-$$
-\frac{3600}{15}=240
-$$
-
-orders per real hour.
-
-Configuration:
-
-~~~text
-LIVE_ORDER_STREAM=true
-LIVE_ORDER_INTERVAL_S=15
-~~~
-
-This makes the system useful for repeated stress experiments involving:
-
-- queue growth,
-- consolidation,
-- dispatching,
-- optimizer latency,
-- warehouse workload,
-- fleet utilization,
-- repositioning,
-- disruptions.
-
----
-
-# 20. Driver-in-the-loop decision layer
-
-The system does not assume every optimization recommendation is automatically accepted.
-
-A driver offer can include:
-
-- vehicle ID,
-- pickup warehouse,
-- added kilometers,
-- pickup ETA,
-- estimated saving,
-- SLA buffer,
-- rejected alternatives,
-- decision explanation.
-
-The driver can accept or reject the proposed assignment.
-
-Conceptually:
-
-$$
-\text{algorithmic recommendation}
-\rightarrow
-\text{human decision}
-\rightarrow
-\text{new system state}
-$$
-
-If rejected, the shipment is requeued and the engine can search for another assignment.
-
-An automatic timeout is available for unattended demonstrations.
-
----
-
-# 21. Explainable optimization
-
-The system generates explanations such as:
+Each decision produces a human-readable explanation, for example:
 
 > Capacity OK; road ETA 82 min; SLA buffer 115 min; detour 12.4%.
 
-Candidate rejection reasons can include:
+Rejected candidates are tagged with a reason: weight, volume, route distance, SLA violation, detour, unavailable vehicle, or routing failure.
 
-- capacity constraint,
-- volume constraint,
-- route-distance constraint,
-- SLA violation,
-- detour constraint,
-- unavailable vehicle,
-- routing feasibility failure.
+**Control-tower metrics**
 
-This makes the optimization decision auditable.
+| Area | Metrics |
+|---|---|
+| Economics | baseline cost, adaptive cost, savings, savings % |
+| Service | average time saved, on-time %, at-risk shipments |
+| Consolidation | consolidated shipments, consolidation rate, dispatches avoided |
+| Fleet | utilization, current load, remaining weight/volume capacity |
+| Network | total km, empty km and %, repositioning km, backhaul savings |
+| Optimizer | decision count, p95 latency, routing requests, real vs fallback routes, global runs |
 
-The objective is not merely:
+**Replay.** Important events carry sequence numbers and simulation timestamps, so any shipment's history (order → warehouse → candidate evaluation → selection → driver offer → pickup → delivery) can be replayed for debugging and validation.
 
-$$
-\text{choose }v^*
-$$
-
-but:
-
-$$
-\text{choose }v^*
-+
-\text{show why competing candidates were infeasible}
-$$
+**Driver-in-the-loop.** Offers include vehicle, pickup warehouse, added km, ETA, estimated saving, SLA buffer, and rejected alternatives. Rejected shipments are requeued. An optional timeout supports unattended demos.
 
 ---
 
-# 22. Traditional vs Adaptive evaluation
+## API
 
-Every shipment has a counterfactual baseline.
-
-## Traditional
-
-Approximate:
-
-$$
-\text{shipment}
-\rightarrow
-\text{dedicated vehicle}
-\rightarrow
-\text{destination}
-$$
-
-Baseline attributes include:
-
-- route distance,
-- estimated travel time,
-- cost,
-- ETA.
-
-## Adaptive
-
-Adaptive attributes include:
-
-- adaptive distance,
-- adaptive time,
-- allocated cost,
-- cost saving,
-- time saving,
-- backhaul status.
-
-This creates an explicit comparison:
-
-$$
-Delta C=C_{traditional}-C_{adaptive}
-$$
-
-$$
-Delta T=T_{traditional}-T_{adaptive}
-$$
-
-The project can therefore evaluate the operational effect of consolidation instead of merely reporting that consolidation occurred.
-
----
-
-# 23. Metrics exposed by the control tower
-
-## Economics
-
-- baseline assigned cost
-- adaptive cost
-- cost savings
-- cost savings percentage
-
-## Service
-
-- average time saved
-- on-time percentage
-- at-risk shipments
-
-## Consolidation
-
-- consolidated shipments
-- consolidation rate
-- dispatches avoided
-
-## Fleet
-
-- fleet utilization
-- current load
-- remaining weight capacity
-- remaining volume capacity
-
-## Network efficiency
-
-- total kilometers
-- empty kilometers
-- empty-kilometer percentage
-- repositioning kilometers
-- backhaul savings
-
-## Optimization
-
-- optimizer decision count
-- optimizer p95 latency
-- routing requests
-- real routes
-- fallback routes
-- global optimization runs
-
----
-
-# 24. Architecture
-
-~~~text
-                         Live Order Feed
-                               |
-                               v
-                      Nearest Hub Mapping
-                               |
-                               v
-                  +---------------------------+
-                  | Online Route Insertion     |
-                  |---------------------------|
-                  | weight / volume capacity  |
-                  | road ETA                  |
-                  | pickup SLA                |
-                  | delivery SLA              |
-                  | detour                    |
-                  | marginal cost             |
-                  +-------------+-------------+
-                                |
-                    +-----------+-----------+
-                    |                       |
-                 feasible              infeasible
-                    |                       |
-                    v                       v
-               Driver Offer         Warehouse Queue
-                    |                       |
-              accept/reject            full or 2h
-                    |                       |
-                    v                       v
-               Route Update           Batch Dispatch
-                    |                       |
-                    +-----------+-----------+
-                                |
-                                v
-                         OSRM Road Routing
-                                |
-                                v
-                          Vehicle Simulator
-                                |
-                +---------------+---------------+
-                |               |               |
-                v               v               v
-           Disruption       Forecast        Reposition
-           Recovery             |             CP-SAT
-                |               |               |
-                +---------------+-------+-------+
-                                        |
-                                        v
-                             Event / Replay / WS
-                                        |
-                                        v
-                              Streamlit Control Tower
-~~~
-
----
-
-# 25. Repository structure
-
-~~~text
-adaptive-freight/
-|
-├── api/
-|   └── main.py
-|
-├── src/
-|   ├── engine.py
-|   ├── optimizer.py
-|   ├── global_optimizer.py
-|   ├── forecast.py
-|   ├── models.py
-|   ├── geo.py
-|   ├── router.py
-|   ├── order_stream.py
-|   ├── consolidation.py
-|   ├── disruptions.py
-|   ├── fleet.py
-|   ├── simulator.py
-|   ├── event_bus.py
-|   ├── persistence.py
-|   ├── auth.py
-|   └── metrics.py
-|
-├── web/
-|   ├── map.html
-|   └── dashboard.html
-|
-├── tests/
-|   ├── test_core.py
-|   └── test_production.py
-|
-├── scripts/
-|   ├── prepare_osrm.ps1
-|   ├── start_private_osrm.ps1
-|   ├── oci_bootstrap.sh
-|   ├── oci_prepare_osrm.sh
-|   └── oci_update.sh
-|
-├── app.py
-├── Dockerfile
-├── docker-compose.yml
-├── docker-compose.oci.yml
-├── requirements.txt
-├── requirements-frontend.txt
-├── render.yaml
-└── OCI_DEPLOYMENT.md
-~~~
-
----
-
-# 26. Core modules
-
-## src/models.py
-
-Defines:
-
-- Shipment
-- Stop
-- Vehicle
-
-Shipment state contains:
-
-- origin and destination,
-- warehouse and handoff location,
-- weight and volume,
-- deadlines,
-- service times,
-- baseline metrics,
-- adaptive metrics,
-- queue timing,
-- backhaul state,
-- optimizer explanation.
-
-Vehicle state contains:
-
-- weight capacity,
-- volume capacity,
-- current and reserved load,
-- current location,
-- route stops,
-- route geometry,
-- total distance,
-- empty distance,
-- mission,
-- reposition target.
-
-## src/optimizer.py
-
-Implements the online active-route insertion optimizer.
-
-The decision pipeline is:
-
-1. filter candidate vehicles,
-2. check weight and volume,
-3. enumerate pickup/delivery insertion positions,
-4. obtain road travel-time hints,
-5. include service times,
-6. enforce time windows,
-7. calculate detour,
-8. calculate marginal cost,
-9. score feasible candidates,
-10. choose the highest-scoring feasible candidate.
-
-## src/global_optimizer.py
-
-Implements idle vehicle to warehouse repositioning with OR-Tools CP-SAT.
-
-## src/forecast.py
-
-Implements the rolling demand-rate estimator.
-
-## src/engine.py
-
-Coordinates the complete event-driven simulation and operational state.
-
----
-
-# 27. API surface
-
-The FastAPI backend exposes:
-
-~~~text
-GET  /health
-GET  /version
-GET  /ready
-GET  /state
-GET  /events
-GET  /replay
+```text
+GET  /health  /version  /ready  /state  /events  /replay
 GET  /shipments/{shipment_id}
-GET  /driver-offers
-GET  /metrics
-GET  /city-coords
-GET  /map
+GET  /driver-offers  /metrics  /city-coords  /map
 
 POST /orders
 POST /driver-offers/{offer_id}
 POST /fleet/reposition/{vehicle_id}/{warehouse}
 POST /fleet/reoptimize
-POST /control/start
-POST /control/pause
-POST /control/reset
+POST /control/start  /control/pause  /control/reset
 POST /control/traffic/{factor}
 POST /control/speed/{value}
 POST /control/live-stream/{state}
@@ -1080,13 +381,12 @@ POST /control/live-stream-interval/{seconds}
 POST /disruptions/breakdown/{vehicle_id}
 POST /disruptions/repair/{vehicle_id}
 
-WebSocket:
-    /ws
-~~~
+WS   /ws
+```
 
-Example order:
+Order ingestion is idempotent, so retrying the same `shipment_id` is safe.
 
-~~~json
+```json
 {
   "shipment_id": "LIVE-001",
   "pickup_city": "SAT",
@@ -1099,107 +399,36 @@ Example order:
   "revenue_usd": 2400,
   "priority": "Express"
 }
-~~~
-
-The same shipment ID can safely be retried because order ingestion is designed to be idempotent.
+```
 
 ---
 
-# 28. Replay and event history
+## Getting started
 
-Important operational events receive sequence numbers and simulation timestamps.
-
-A typical shipment replay can look like:
-
-~~~text
-Order arrived
-    |
-    v
-Nearest warehouse selected
-    |
-    v
-Active vehicle candidates evaluated
-    |
-    v
-Candidate rejected or selected
-    |
-    v
-Driver notified
-    |
-    v
-Route changed
-    |
-    v
-Pickup
-    |
-    v
-Delivery
-~~~
-
-A warehouse-consolidated shipment can follow:
-
-~~~text
-Order arrived
-    |
-    v
-Warehouse queue
-    |
-    v
-Queue accumulation
-    |
-    v
-Departure threshold reached
-    |
-    v
-Smallest suitable truck selected
-    |
-    v
-Batch route created
-    |
-    v
-Delivery
-~~~
-
-Replay is useful for validation, debugging, and explaining decisions.
-
----
-
-# 29. Local development
-
-Create a virtual environment:
-
-~~~powershell
+```powershell
 python -m venv .venv
-.\\.venv\\Scripts\\Activate.ps1
-~~~
-
-Install:
-
-~~~powershell
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-~~~
-
-Run:
-
-~~~powershell
 python run.py
-~~~
+```
 
-Open:
+Open http://127.0.0.1:8000/. The Streamlit frontend uses `requirements-frontend.txt` and runs separately.
 
-~~~text
-http://127.0.0.1:8000/
-~~~
+With Docker:
 
-The Streamlit frontend can be run separately using the frontend requirements.
+```bash
+docker compose up --build
+```
+
+### Live order stress stream
+
+The default stream emits one order every 15 seconds (240 per real hour), useful for stress-testing queue growth, consolidation, optimizer latency, fleet utilization, and disruptions.
 
 ---
 
-# 30. Configuration
+## Configuration
 
-Important settings include:
-
-~~~text
+```text
 ROUTER_URL=https://router.project-osrm.org
 PUBLIC_ROUTER_FALLBACK=true
 
@@ -1218,431 +447,62 @@ CORS_ORIGINS=
 
 PERSISTENCE_ENABLED=true
 CHECKPOINT_INTERVAL_S=60
-~~~
+```
 
-For public deployments, configure authentication.
+For public deployments, enable authentication. Roles are `readonly`, `dispatcher`, and `admin`:
 
-Example:
-
-~~~text
+```text
 API_KEYS=sk_admin:admin,sk_dispatch:dispatcher,sk_view:readonly
-~~~
-
-Application roles:
-
-- readonly
-- dispatcher
-- admin
+```
 
 ---
 
-# 31. Docker and deployment
+## Deployment
 
-The repository includes:
+**Render (free tier).** Persistence is disabled because the filesystem is ephemeral (`PERSISTENCE_ENABLED=false`, `CHECKPOINT_INTERVAL_S=0`). A GitHub Actions workflow (`.github/workflows/render-keep-alive.yml`) pings `GET /health` periodically to reduce idle spin-down. It does not lift Render's monthly instance-hour limit.
 
-- Dockerfile
-- Docker Compose
-- OCI-specific Docker Compose
-- Caddy HTTPS configuration
-- Render deployment configuration
-- OCI deployment scripts
-
-Standard local stack:
-
-~~~bash
-docker compose up --build
-~~~
-
-The OCI stack combines:
-
-~~~text
-FastAPI
-PostgreSQL
-Redis
-Private OSRM
-Caddy HTTPS
-~~~
-
-with persistent Docker volumes and automatic container restart policies.
-
-Detailed OCI instructions are in:
-
-[OCI_DEPLOYMENT.md](OCI_DEPLOYMENT.md)
+**OCI (persistent).** `docker-compose.oci.yml` runs FastAPI, PostgreSQL, Redis, a private OSRM instance, and Caddy for HTTPS, with persistent volumes and restart policies. See [OCI_DEPLOYMENT.md](OCI_DEPLOYMENT.md).
 
 ---
 
-# 32. Render deployment
+## Testing
 
-Current public backend:
-
-**https://adaptive-freight.onrender.com**
-
-The repository includes a GitHub Actions workflow:
-
-~~~text
-.github/workflows/render-keep-alive.yml
-~~~
-
-which periodically requests:
-
-~~~text
-GET /health
-~~~
-
-to reduce idle spin-down on the Render Free service.
-
-The keep-alive mechanism does **not** remove the monthly Render Free instance-hour limit.
-
-For the Render Free filesystem, persistence is intentionally disabled:
-
-~~~text
-PERSISTENCE_ENABLED=false
-CHECKPOINT_INTERVAL_S=0
-~~~
-
-The project also includes persistent OCI deployment scaffolding for a VM-based deployment.
-
----
-
-# 33. Testing and CI
-
-The project contains automated tests for:
-
-- active vehicle capacity,
-- route feasibility,
-- OSRM time feasibility,
-- demand forecasting,
-- authentication parsing,
-- persistence,
-- checkpoint round trips.
-
-Run:
-
-~~~bash
+```bash
 pytest -q
-~~~
+```
 
-GitHub Actions is used for continuous integration.
-
----
-
-# 34. Engineering and mathematical trade-offs
-
-A full exact dynamic vehicle-routing model can become expensive as the network grows.
-
-The current architecture therefore avoids a monolithic optimization call after every shipment.
-
-Instead:
-
-### Online layer
-
-Use fast candidate generation and constraint filtering for active-route insertion.
-
-### Global layer
-
-Use CP-SAT periodically for idle-fleet repositioning.
-
-This leads to:
-
-$$
-\text{fast online heuristic}
-+
-\text{small global combinatorial optimizer}
-$$
-
-The goal is not to claim global mathematical optimality at every simulation instant.
-
-The goal is to obtain **interpretable, feasible, economically meaningful decisions at operational timescales**.
+Tests cover vehicle capacity, route feasibility, OSRM time feasibility, demand forecasting, auth parsing, persistence, and checkpoint round trips. CI runs on GitHub Actions.
 
 ---
 
-# 35. Why this is an Applied Mathematics project
+## Assumptions and limitations
 
-The project was designed from a mathematical modeling perspective.
+This is a mathematically grounded prototype, **not a commercial TMS**.
 
-Its fundamental questions are expressed through:
+- **Travel:** OSRM road routing; no live fleet telemetry or traffic feeds.
+- **Demand:** rolling-rate estimator, not a trained forecaster.
+- **Cost:** per-km only. No fuel, tolls, labor, maintenance, accessorials, or carrier rates.
+- **Loading:** weight and volume only; no 3D packing.
+- **Drivers:** accept/reject is modeled but not learned.
+- **Routing:** heuristic insertion with OSRM hints, not an exact road-network VRP per event.
 
-- objective functions,
-- feasible sets,
-- inequalities,
-- marginal quantities,
-- time-window constraints,
-- queue states,
-- rate estimation,
-- combinatorial assignments,
-- counterfactual baselines,
-- dynamic state transitions.
-
-Instead of:
-
-> "Can this truck take another order?"
-
-the system asks:
-
-$$
-\text{Does there exist a feasible route }R'
-$$
-
-such that:
-
-$$
-Q_{weight}(R')\le Q_v
-$$
-
-$$
-Q_{volume}(R')\le U_v
-$$
-
-$$
-D(R')\le L_v
-$$
-
-$$
-T_{pickup}(R')\le t_s^p
-$$
-
-$$
-T_{delivery}(R')\le t_s^d
-$$
-
-and:
-
-$$
-C_{incremental}<C_{baseline}
-$$
-
-when the economic condition is required.
-
-That translation from an operational question into a constrained mathematical decision is the main design philosophy.
+A production system would also need GPS/ELD, WMS/TMS/ERP integration, e-POD, regulatory constraints, distributed event storage, hardened security, and monitoring.
 
 ---
 
-# 36. Model assumptions
+## Roadmap
 
-The project intentionally simplifies some real-world components.
-
-### Travel
-
-OSRM provides road-network routing, but live commercial fleet telemetry is not integrated.
-
-### Demand
-
-The current forecast is a rolling demand-rate estimator, not a trained ML forecasting model.
-
-### Cost
-
-The main transportation cost model is based on vehicle cost per kilometer.
-
-A production system would additionally consider:
-
-- fuel,
-- tolls,
-- labor,
-- maintenance,
-- accessorial charges,
-- negotiated carrier rates.
-
-### Loading
-
-Weight and volume are modeled, but exact three-dimensional packing is not.
-
-### Driver behavior
-
-Accept/reject is modeled explicitly, but acceptance behavior is not statistically learned.
-
-### Routing
-
-The active-route decision combines OSRM travel-time information with route-distance heuristics rather than solving an exact road-network VRP for every event.
-
-These assumptions are deliberate so the model remains interpretable and computationally usable.
-
----
-
-# 37. Future mathematical extensions
-
-## Stochastic optimization
-
-Represent future demand and travel time as random variables:
-
-$$
-D\sim P_D
-$$
-
-$$
-T\sim P_T
-$$
-
-and optimize expected cost plus delay risk:
-
-$$
-\min E[C]+\lambda P(\text{late})
-$$
-
-## Robust optimization
-
-Let travel time belong to an uncertainty set:
-
-$$
-T\in\mathcal U
-$$
-
-and find a decision that remains feasible across the uncertainty set.
-
-## Model predictive control
-
-Repeat optimization over a moving horizon:
-
-$$
-t,\ t+Delta t,\ t+2Delta t,\ldots
-$$
-
-and execute only the first decision before re-optimizing.
-
-## Learning-augmented optimization
-
-Predict:
-
-- demand,
-- driver acceptance,
-- travel-time residuals,
-- SLA failure risk,
-
-then feed those predictions into the constrained optimization model.
-
-## Dynamic pickup-and-delivery VRP
-
-Extend the current heuristic into a formal dynamic pickup-and-delivery VRP with:
-
-- multiple depots,
-- paired pickup and delivery,
-- time windows,
-- vehicle capacities,
-- stochastic arrivals,
-- exact route variables.
-
----
-
-# 38. Production gap
-
-This repository is a mathematically grounded optimization prototype, not a commercial transportation management system.
-
-A true production TMS would need:
-
-- GPS / ELD telemetry,
-- WMS/TMS/ERP integration,
-- carrier contracts and rates,
-- driver mobile workflows,
-- electronic proof of delivery,
-- live traffic feeds,
-- fuel and toll modeling,
-- regulatory constraints,
-- advanced loading constraints,
-- distributed event storage,
-- failure-tolerant messaging,
-- production identity management,
-- audit trails,
-- monitoring and alerting,
-- security hardening,
-- routing-provider SLAs.
-
-The project intentionally focuses on the mathematical and engineering core:
-
-$$
-\text{state}
-\rightarrow
-\text{constraints}
-\rightarrow
-\text{optimization}
-\rightarrow
-\text{decision}
-\rightarrow
-\text{new state}
-$$
-
----
-
-# 39. Project philosophy
-
-The guiding principle is:
-
-> **A logistics optimizer should not merely find a route. It should justify why the route is feasible, quantify what it saves, identify which constraints rejected alternatives, and continuously re-evaluate the network as conditions change.**
-
-That leads to a platform in which optimization, simulation, and software engineering are connected.
-
-The complete pipeline is:
-
-~~~text
-Mathematical model
-        |
-        v
-Feasibility constraints
-        |
-        v
-Optimization decision
-        |
-        v
-Simulation state transition
-        |
-        v
-API / WebSocket
-        |
-        v
-Operational control tower
-        |
-        v
-Metrics + counterfactual analysis
-~~~
-
----
-
-# 40. Key takeaway
-
-Adaptive Freight is fundamentally a study of:
-
-$$
-\boxed{
-\text{How should limited transportation capacity be allocated
-over time and space under uncertainty and service constraints?}
-}
-$$
-
-The answer is not a single shortest path.
-
-It requires reasoning across:
-
-- vehicle capacity,
-- package volume,
-- road travel time,
-- time windows,
-- warehouse queues,
-- marginal route cost,
-- empty movement,
-- backhaul opportunities,
-- disruption recovery,
-- demand forecasting,
-- fleet repositioning,
-- driver decisions.
-
-That is what makes Adaptive Freight an **Operations Research + Applied Mathematics + Data Science** project rather than a simple logistics dashboard.
+- **Stochastic optimization:** treat demand and travel time as random, minimizing $\mathbb{E}[C] + \lambda P(\text{late})$
+- **Robust optimization:** feasibility across an uncertainty set $T \in \mathcal{U}$
+- **Model predictive control:** re-optimize over a moving horizon, executing only the first decision
+- **Learning-augmented optimization:** predict demand, driver acceptance, travel-time residuals, and SLA risk
+- **Dynamic pickup-and-delivery VRP:** multiple depots, paired stops, time windows, stochastic arrivals, exact route variables
 
 ---
 
 ## Author
 
-**Harshith Devaraja**
+**Harshith Devaraja**, M.Sc. Applied Mathematics and Computing
+Focus: operations research, mathematical optimization, data science, simulation, real-time decision analytics
 
-M.Sc. Applied Mathematics and Computing
-
-Focus areas:
-
-- Operations Research
-- Mathematical Optimization
-- Data Science
-- Machine Learning
-- Simulation
-- Risk and Decision Analytics
-- Real-Time Optimization
-
-GitHub:
-
-https://github.com/Harshithpatali
+GitHub: https://github.com/Harshithpatali
