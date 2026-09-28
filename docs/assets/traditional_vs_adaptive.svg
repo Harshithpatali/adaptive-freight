@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="430" viewBox="0 0 1000 430">
+<rect width="1000" height="430" fill="white"/>
+<text x="25" y="38" font-family="Arial" font-size="25" font-weight="700">Counterfactual: traditional vs adaptive consolidation</text>
+<g font-family="Arial" font-weight="700" font-size="20">
+<text x="145" y="85">Cost (USD)</text><text x="475" y="85">Distance (km)</text><text x="800" y="85">Time (h)</text>
+</g>
+<g fill="#899395">
+<rect x="70" y="125" width="120" height="235"/><rect x="400" y="110" width="120" height="250"/><rect x="730" y="120" width="120" height="240"/>
+</g>
+<g fill="#1b824c">
+<rect x="220" y="185" width="120" height="175"/><rect x="550" y="180" width="120" height="180"/><rect x="880" y="155" width="80" height="205"/>
+</g>
+<g font-family="Arial" font-size="16">
+<text x="95" y="390">Traditional</text><text x="235" y="390">Adaptive</text>
+<text x="425" y="390">Traditional</text><text x="565" y="390">Adaptive</text>
+<text x="750" y="390">Traditional</text><text x="885" y="390">Adaptive</text>
+</g>
+<g font-family="Arial" font-size="22" font-weight="700" fill="#167a47">
+<text x="245" y="172">−26%</text><text x="575" y="167">−26%</text><text x="895" y="142">−12%</text>
+</g>
+<g font-family="Arial" font-size="17" fill="#555">
+<text x="108" y="120">$1,000</text><text x="432" y="105">320</text><text x="755" y="115">5.2</text>
+<text x="258" y="180">$740</text><text x="588" y="175">235</text><text x="908" y="150">4.6</text>
+</g>
+<text x="760" y="415" font-family="Arial" font-size="13" fill="#7d8a8d">Illustrative example values</text>
+</svg>
