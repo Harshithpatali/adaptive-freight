@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470">
+<rect width="900" height="470" fill="white"/>
+<text x="35" y="38" font-family="Arial" font-size="25" font-weight="700">Rate-based demand forecast at one warehouse</text>
+<text x="55" y="75" font-family="Arial" font-size="15">Observed orders per 5 min • rolling demand estimate • 60-minute forecast</text>
+<line x1="75" y1="405" x2="850" y2="405" stroke="#222"/>
+<line x1="75" y1="90" x2="75" y2="405" stroke="#222"/>
+<g font-family="Arial" font-size="12" fill="#555">
+<text x="50" y="410">0</text><text x="50" y="345">1</text><text x="50" y="280">2</text><text x="50" y="215">3</text><text x="50" y="150">4</text><text x="50" y="95">5</text>
+</g>
+<g fill="#b8bec2">
+<rect x="95" y="210" width="18" height="195"/><rect x="120" y="275" width="18" height="130"/><rect x="145" y="340" width="18" height="65"/>
+<rect x="170" y="210" width="18" height="195"/><rect x="195" y="145" width="18" height="260"/><rect x="220" y="210" width="18" height="195"/>
+<rect x="245" y="275" width="18" height="130"/><rect x="270" y="275" width="18" height="130"/><rect x="295" y="210" width="18" height="195"/>
+<rect x="320" y="145" width="18" height="260"/><rect x="345" y="275" width="18" height="130"/><rect x="370" y="210" width="18" height="195"/>
+<rect x="395" y="340" width="18" height="65"/><rect x="420" y="210" width="18" height="195"/><rect x="445" y="210" width="18" height="195"/>
+<rect x="470" y="275" width="18" height="130"/><rect x="495" y="275" width="18" height="130"/><rect x="520" y="275" width="18" height="130"/>
+<rect x="545" y="340" width="18" height="65"/><rect x="570" y="275" width="18" height="130"/><rect x="595" y="340" width="18" height="65"/>
+<rect x="620" y="340" width="18" height="65"/><rect x="645" y="275" width="18" height="130"/><rect x="670" y="340" width="18" height="65"/>
+<rect x="695" y="275" width="18" height="130"/>
+</g>
+<polyline fill="none" stroke="#2d4056" stroke-width="5" points="104,210 129,275 154,340 179,275 204,230 229,275 254,285 279,285 304,255 329,235 354,275 379,300 404,280 429,295 454,295 479,315 504,300 529,315 554,315 579,330 604,350 629,370 654,370 679,355 704,375 729,355 754,375 779,375 804,385"/>
+<line x1="820" y1="90" x2="820" y2="405" stroke="#7d8a8d" stroke-width="2" stroke-dasharray="4 5"/>
+<line x1="820" y1="355" x2="855" y2="355" stroke="#e67817" stroke-width="5" stroke-dasharray="12 8"/>
+<text x="825" y="108" font-family="Arial" font-size="15" fill="#7d8a8d">now</text>
+<text x="650" y="445" font-family="Arial" font-size="13" fill="#7d8a8d">Synthetic data • rolling-rate forecast</text>
+</svg>
