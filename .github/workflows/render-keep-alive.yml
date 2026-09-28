@@ -20,7 +20,7 @@ jobs:
     steps:
       - name: Ping Render API
         env:
-          RENDER_API_URL: https://adaptive-freight-api.onrender.com
+          RENDER_API_URL: https://adaptive-freight.onrender.com
         run: |
           set -euo pipefail
           echo "Pinging $RENDER_API_URL/health"
