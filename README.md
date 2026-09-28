@@ -220,11 +220,15 @@ The project does not claim global optimality at every instant. It aims for **int
 
 ## Visual overview
 
+### Documentation assets
+
+The visual documentation is stored under `docs/assets/` as lightweight SVGs so the diagrams remain version-controlled and render cleanly on GitHub.
+
 ### Demo map
 
 A truck is already heading **A → C** (Corpus Christi → Houston). A new shipment appears at **B** (San Antonio) bound for C. The optimizer checks capacity, detour, and both deadlines, then accepts **A → B → C**. Freight that no truck can absorb waits in a warehouse queue, and idle vehicles are repositioned toward forecast demand.
 
-![Demo map](docs/assets/demo_map.png)
+![Demo map](docs/assets/demo_map.svg)
 
 ### Decision flow for a new order
 
@@ -288,19 +292,19 @@ flowchart LR
 
 Waiting increases consolidation but also SLA exposure, so a departure cap (120 simulated minutes) bounds the wait.
 
-![Warehouse trade-off](docs/assets/warehouse_tradeoff.png)
+![Warehouse trade-off](docs/assets/warehouse_tradeoff.svg)
 
 ### Counterfactual: traditional vs adaptive
 
 Every shipment carries a dedicated-vehicle baseline, so the effect of consolidation is measured instead of assumed.
 
-![Traditional vs adaptive](docs/assets/traditional_vs_adaptive.png)
+![Traditional vs adaptive](docs/assets/traditional_vs_adaptive.svg)
 
 ### Demand forecast
 
 A rolling arrival rate feeds the CP-SAT repositioning model.
 
-![Demand forecast](docs/assets/demand_forecast.png)
+![Demand forecast](docs/assets/demand_forecast.svg)
 
 > The map, curves, and bar charts are **schematic or synthetic** illustrations of the model, not benchmark results. Replace them with exported control-tower screenshots or metrics from your own runs.
 
