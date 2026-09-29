@@ -10,10 +10,6 @@ services:
     renderSubdomainPolicy: enabled
     autoDeployTrigger: commit
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: adaptive-freight-db
-          property: connectionString
       - key: ROUTER_URL
         value: https://router.project-osrm.org
       - key: PUBLIC_ROUTER_FALLBACK
@@ -25,9 +21,13 @@ services:
       - key: CHECKPOINT_INTERVAL_S
         value: "0"
       - key: LIVE_ORDER_STREAM
-        value: "true"
+        value: "false"
       - key: LIVE_ORDER_INTERVAL_S
-        value: "15"
+        value: "30"
+      - key: WS_STATE_INTERVAL_S
+        value: "2"
+      - key: WS_MAX_CLIENTS
+        value: "3"
       - key: SIM_MINUTES_PER_SECOND
         value: "2.0"
       - key: ENGINE_TICK_MS
@@ -41,32 +41,3 @@ services:
       - key: API_KEYS
         sync: false
 
-  - type: web
-    name: adaptive-freight-ui
-    runtime: python
-    region: singapore
-    plan: 0.5c-512mb
-    buildCommand: pip install -r requirements-frontend.txt
-    startCommand: streamlit run app.py --server.address 0.0.0.0 --server.port $PORT --server.headless true --server.enableCORS false
-    autoDeployTrigger: commit
-    envVars:
-      - key: BACKEND_URL
-        fromService:
-          type: web
-          name: adaptive-freight-api
-          property: hostport
-      - key: PUBLIC_BACKEND_URL
-        fromService:
-          type: web
-          name: adaptive-freight-api
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: DASHBOARD_API_KEY
-        sync: false
-
-databases:
-  - name: adaptive-freight-db
-    region: singapore
-    plan: 0.5c-1g
-    databaseName: freight
-    user: freight
-    ipAllowList: []
