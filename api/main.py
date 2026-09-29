@@ -39,6 +39,8 @@ async def rate_limit_and_log(request:Request,call_next):
     return response
 
 ENGINE=Engine()
+_WS_CLIENTS=set()
+_WS_CLIENT_LOCK=asyncio.Lock()
 
 class LiveOrder(BaseModel):
     shipment_id:str
@@ -189,14 +191,33 @@ async def metrics():
 async def ws(websocket:WebSocket):
     await websocket.accept()
     if not await authorize_ws(websocket):
-        await websocket.close(code=4401);return
+        await websocket.close(code=4401)
+        return
+
+    async with _WS_CLIENT_LOCK:
+        if len(_WS_CLIENTS) >= settings.ws_max_clients:
+            await websocket.close(code=4429, reason="live stream capacity reached")
+            return
+        _WS_CLIENTS.add(websocket)
+
     async def event_loop():
-        async for event in ENGINE.bus.subscribe():await websocket.send_json(event)
+        async for event in ENGINE.bus.subscribe():
+            await websocket.send_json(event)
+
     async def state_loop():
+        # Send one snapshot immediately, then throttle full snapshots.
+        await websocket.send_json({"type":"state","data":ENGINE.snapshot()})
         while True:
-            await websocket.send_json({"type":"state","data":ENGINE.snapshot()});await asyncio.sleep(settings.engine_tick_ms/1000)
-    try:await asyncio.gather(event_loop(),state_loop())
-    except (WebSocketDisconnect,asyncio.CancelledError):return
+            await asyncio.sleep(settings.ws_state_interval_s)
+            await websocket.send_json({"type":"state","data":ENGINE.snapshot()})
+
+    try:
+        await asyncio.gather(event_loop(), state_loop())
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        pass
+    finally:
+        async with _WS_CLIENT_LOCK:
+            _WS_CLIENTS.discard(websocket)
 
 @APP.get("/city-coords")
 async def city_coords():
