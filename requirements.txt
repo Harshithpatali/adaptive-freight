@@ -14,3 +14,4 @@ gunicorn>=22.0
 requests>=2.32
 
 ortools>=9.12,<10
+streamlit>=1.40
