@@ -32,8 +32,10 @@ class Settings:
     persistence_enabled: bool = os.getenv("PERSISTENCE_ENABLED", "true").lower() == "true"
     rate_limit_per_minute: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "300"))
     log_json: bool = os.getenv("LOG_JSON", "false").lower() == "true"
-    live_order_stream: bool = os.getenv("LIVE_ORDER_STREAM", "true").lower() == "true"
-    live_order_interval_s: float = float(os.getenv("LIVE_ORDER_INTERVAL_S", "15"))
+    live_order_stream: bool = os.getenv("LIVE_ORDER_STREAM", "false").lower() == "true"
+    live_order_interval_s: float = float(os.getenv("LIVE_ORDER_INTERVAL_S", "30"))
+    ws_state_interval_s: float = float(os.getenv("WS_STATE_INTERVAL_S", "2.0"))
+    ws_max_clients: int = int(os.getenv("WS_MAX_CLIENTS", "3"))
 
     @property
     def api_keys(self) -> dict[str, str]:

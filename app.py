@@ -22,13 +22,22 @@ def api(path:str,method:str="get"):
     except Exception as exc:return {"error":str(exc)}
 
 st.title("🚚 Adaptive Freight — Real-Time Control Tower")
-st.caption("240 orders/hour stress stream • nearest-warehouse allocation • active-route consolidation • full-load / 2-hour departures")
+st.caption("Session-controlled live monitoring • nearest-warehouse allocation • active-route consolidation • full-load / 2-hour departures")
 
 state=api("/state")
 if "error" in state:
     st.error("Realtime engine is not running");st.write(f"Backend: {BACKEND}");st.write(state["error"]);st.stop()
 
 with st.sidebar:
+    st.header("Live Monitoring")
+    live_monitoring = st.toggle("Enable live stream", value=False, help="Only while enabled does the dashboard open the backend live stream.")
+    if live_monitoring:
+        api("/control/live-stream/enable", "post")
+        st.success("Live stream connected while this dashboard is open.")
+    else:
+        api("/control/live-stream/disable", "post")
+        st.info("Live stream is off.")
+    st.markdown("---")
     st.header("Engine")
     c1,c2=st.columns(2)
     if c1.button("▶ LIVE",use_container_width=True):api("/control/start","post")
@@ -88,7 +97,10 @@ else:
 
 st.subheader("Live Road Map")
 st.info("REAL routes come from OSRM road geometry. Fallback routes are explicitly marked.")
-st.markdown(f'<iframe src="{PUBLIC_BACKEND}/map" style="width:100%;height:680px;border:0;border-radius:12px"></iframe>',unsafe_allow_html=True)
+if live_monitoring:
+    st.markdown(f'<iframe src="{PUBLIC_BACKEND}/map" style="width:100%;height:680px;border:0;border-radius:12px"></iframe>', unsafe_allow_html=True)
+else:
+    st.warning("Live monitoring is off. Enable it in the sidebar to open the real-time map stream.")
 
 left,right=st.columns([1.35,1])
 with left:
@@ -178,5 +190,5 @@ if history:
     ]),use_container_width=True,height=280)
 
 st.caption("Each live order gets a package weight/size, nearest warehouse, baseline dedicated-truck estimate, and an optimized assignment decision.")
-time.sleep(1)
+time.sleep(5)
 st.rerun()
